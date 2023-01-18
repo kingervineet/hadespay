@@ -8,7 +8,7 @@ use anchor_spl::associated_token::{AssociatedToken, get_associated_token_address
 
 const BLANK: &str = "                                ";
 
-declare_id!("HSmCq1hyEyUcrKqwEeW2nneDqfcC6ZP7iqfcyuJmgpn3");
+declare_id!("FvHH3ev9aWMG8E9jE9Gu58AhoBUTvnLwzuJC1A5kSKT");
 
 #[program]
 pub mod stream_contract {
@@ -75,7 +75,8 @@ pub mod stream_contract {
         require!(resume_by <= 2, MyError::InvalidResumeBy);
         require!(edit_by <= 2, MyError::InvalidEditBy);
 
-        require!(duration == ((amount as f32 / rate as f32) * interval as f32) as u128, MyError::IncorrectDuration);
+        require!(rate == ((amount as f64 / duration as f64) * interval as f64).round() as u128, MyError::IncorrectDuration);
+        //require!(duration == ((amount as f64 / rate as f64) * interval as f64) as u128, MyError::IncorrectDuration);
         let rem = amount % rate;
         let no_of_intervals = amount/rate;
 
@@ -219,7 +220,8 @@ pub mod stream_contract {
         require!(resume_by <= 2, MyError::InvalidResumeBy);
         require!(edit_by <= 2, MyError::InvalidEditBy);
         
-        require!(duration == ((amount as f32 / rate as f32).round() * interval as f32) as u128, MyError::IncorrectDuration);
+        require!(rate == ((amount as f64 / duration as f64) * interval as f64).round() as u128, MyError::IncorrectDuration);
+        //require!(duration == ((amount as f64 / rate as f64).round() * interval as f64) as u128, MyError::IncorrectDuration);
         let rem = amount % rate;
         let no_of_intervals = amount/rate;
 
@@ -838,7 +840,7 @@ pub mod stream_contract {
         /* Without this, the duration would be zero. */
         require!(amount >= rate, MyError::DepositSmallerThanTime);
 
-        let duration = (amount as f32 / rate as f32) * interval as f32;
+        let duration = ((amount as f64 / rate as f64) * interval as f64).round();
         let new_stop = stream_account.stop_time + duration as u128;
 
         stream_account.stop_time = new_stop;
@@ -901,7 +903,7 @@ pub mod stream_contract {
         /* Without this, the duration would be zero. */
         require!(amount >= rate, MyError::DepositSmallerThanTime);
 
-        let duration = (amount as f32 / rate as f32) * interval as f32;
+        let duration = ((amount as f64 / rate as f64) * interval as f64).round();
         let new_stop = stream_account.stop_time + duration as u128;
 
         stream_account.stop_time = new_stop;
@@ -1331,7 +1333,7 @@ pub struct StreamItem {
 }
 
 impl StreamList {
-    pub const MAX_SIZE: usize = 2 + 4 + 100 * (32 + 1);
+    pub const MAX_SIZE: usize = 2 + 4 + 20 * (32 + 1);
 }
 
 #[error_code]

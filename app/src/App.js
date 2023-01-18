@@ -38,7 +38,7 @@ import { Metaplex, AccountNotFoundError } from "@metaplex-foundation/js";
 window.Buffer = buffer.Buffer;
 
 const utf8 = utils.bytes.utf8;
-const recipient = new PublicKey("GpuwB3BfFFVMzjmpVz7Bw2hTUcv8Nm7qHzvU6JRdSs5N");
+const recipient = new PublicKey("HWcGBoLy5WDdDWDAhhicdroWS8hLAjgscR7d7fGuJCTJ");
 const tokenAddress = new PublicKey(
   "Gssm3vfi8s65R31SBdmQRq6cKeYojGgup7whkw4VCiQj"
 );
@@ -859,10 +859,10 @@ const Content = () => {
         onClick={() =>
           createStream(
             recipient,
-            tokenAddress,
+            "",
             "Testing",
             10000000000,
-            "2023-01-17 16:33",
+            "2023-01-18 23:53",
             1,
             1000000000,
             10,

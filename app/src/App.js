@@ -481,7 +481,7 @@ const Content = () => {
     rate,
     amount
   ) {
-    const timestamp = new Date().valueOf() / 1000;
+    const timestamp = Math.floor(new Date().valueOf() / 1000);
     let readyForWithdrawal;
     if (timestamp >= stop) {
       return remBal;
@@ -491,7 +491,7 @@ const Content = () => {
         readyForWithdrawal = 0;
         return readyForWithdrawal;
       } else {
-      let no_of_intervals = delta / interval;
+      let no_of_intervals = Math.floor(delta / interval);
 
       readyForWithdrawal = no_of_intervals * rate;
 

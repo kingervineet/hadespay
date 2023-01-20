@@ -38,13 +38,13 @@ import { Metaplex, AccountNotFoundError } from "@metaplex-foundation/js";
 window.Buffer = buffer.Buffer;
 
 const utf8 = utils.bytes.utf8;
-const recipient = new PublicKey("HWcGBoLy5WDdDWDAhhicdroWS8hLAjgscR7d7fGuJCTJ");
+const recipient = new PublicKey("7QmBg2FW8uXy7GrnHMcHeoFJ9qfT7zRRnTkRG1EDSzeM");
 const tokenAddress = new PublicKey(
   "Gssm3vfi8s65R31SBdmQRq6cKeYojGgup7whkw4VCiQj"
 );
 const streamPDA = new PublicKey("FzmNArJLjHofiuG9KowbSk51jVzzPUDs5dFmNJqkbvWF");
 const streamPDAtoken = new PublicKey(
-  "FKVEeWs8kqk3JGcL3AvVmRiAzZ5rrqpCGCjsJAPD3bZb"
+  "E1wpegQ9P5rbCjbNDfHeapfcFeCaEiLfybzkuyfCgknN"
 );
 const streamPDAtoken2 = new PublicKey(
   "2ezLde3TbC7DFcPBpkh2TWoGEsW8GqezEnmZreaVszaq"
@@ -473,6 +473,37 @@ const Content = () => {
     }
   }
 
+  function getWithdrawAmount(
+    start,
+    stop,
+    interval,
+    remBal,
+    rate,
+    amount
+  ) {
+    const timestamp = new Date().valueOf() / 1000;
+    let readyForWithdrawal;
+    if (timestamp >= stop) {
+      return remBal;
+    } else {
+      let delta = timestamp - start;
+      if (delta < interval) {
+        readyForWithdrawal = 0;
+        return readyForWithdrawal;
+      } else {
+      let no_of_intervals = delta / interval;
+
+      readyForWithdrawal = no_of_intervals * rate;
+
+      if (amount > remBal) {
+        let amt_withdrawn = amount - remBal;
+        readyForWithdrawal -= amt_withdrawn;
+      }
+      return readyForWithdrawal;
+    }
+  }
+}
+
   async function listAllStreams() {
     const provider = await getProvider();
     /* create the program interface combining the idl, program ID, and provider */
@@ -500,6 +531,20 @@ const Content = () => {
             const streamAct = await program.account.streamAccount.fetch(
               streamListSenderAccount.items[i].streamList
             );
+            const start = streamAct.startTime.toString();
+            const stop = streamAct.stopTime.toString();
+            const interval = streamAct.interval;
+            const remBal = streamAct.remainingBalance;
+            const rate = streamAct.rateOfStream;
+            const amount = streamAct.deposit;
+            let readyForWithdrawal = getWithdrawAmount(
+              start,
+              stop,
+              interval,
+              remBal,
+              rate,
+              amount
+            );
             var status = String;
             if (streamAct.isPaused === true) {
               status = "Paused";
@@ -514,7 +559,7 @@ const Content = () => {
               new Date().valueOf() / 1000 <
               streamAct.startTime.toString()
             ) {
-              status = "Not Yet Started";
+              status = "Scheduled";
             } else {
               status = "Active";
             }
@@ -530,7 +575,11 @@ const Content = () => {
               streamId: streamListSenderAccount.items[i].streamList.toString(),
               title: streamAct.streamTitle.toString(),
               remainingBalance: streamAct.remainingBalance.toString(),
+              readyForWithdrawal: readyForWithdrawal,
               status: status,
+              isContinuous: streamAct.isInfinite,
+              Sender: streamAct.sender.toString(),
+              Recipient: streamAct.recipient.toString(),
               StartTime: (
                 await getDate(Number(streamAct.startTime.toString()) * 1000)
               ).valueOf(),
@@ -859,14 +908,14 @@ const Content = () => {
         onClick={() =>
           createStream(
             recipient,
-            "",
+            tokenAddress,
             "Testing",
             10000000000,
-            "2023-01-18 23:53",
-            1,
+            "2023-01-20 16:17",
+            60,
             1000000000,
-            10,
-            false,
+            600,
+            true,
             2,
             2,
             2,
@@ -887,14 +936,16 @@ const Content = () => {
       <button onClick={() => resumeStream(streamPDAtoken2)}>
         Resume Stream
       </button>
-      <button onClick={() => reloadStream(streamPDA, 1)}>Reload Stream</button>
+      <button onClick={() => reloadStream(streamPDAtoken, 10)}>
+        Reload Stream
+      </button>
       <button onClick={() => deleteStream(streamPDAtoken)}>
         Delete Stream
       </button>
       <button
         onClick={() =>
           viewDetails(
-            streamPDA,
+            streamPDAtoken,
             "A8qiM741Jru7B2kZjSX5EhiV6my1qLi1GdTfXe1peDfp",
             "ATPGNLDPpqgLbEpoLe73prQe7QFchvnLsAQ4x1NaCX1L"
           )

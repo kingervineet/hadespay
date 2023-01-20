@@ -353,9 +353,6 @@ pub mod stream_contract {
         
         stream_account.remaining_balance -= amt as u128;
 
-        if stream_account.remaining_balance == 0 {
-            stream_account.is_cancelled = true;
-        }
         Ok(())
     }
 
@@ -441,10 +438,6 @@ pub mod stream_contract {
         )?;
 
         stream_account.remaining_balance -= amt as u128;
-
-        if stream_account.remaining_balance == 0 {
-            stream_account.is_cancelled = true;
-        }
 
         Ok(())
     }
@@ -819,6 +812,7 @@ pub mod stream_contract {
         let stream_account = &mut ctx.accounts.stream;
         let clock: Clock = Clock::get().unwrap();
         let timestamp = clock.unix_timestamp as u128;
+        let stop = stream_account.stop_time;
 
         require!(
             stream_account.is_infinite == true,
@@ -829,11 +823,9 @@ pub mod stream_contract {
             MyError::IncorrectStreamId
         );
         require!(amount > 0, MyError::DepositIsZero);
-        require!(
-            timestamp < stream_account.stop_time,
-            MyError::StreamAlreadyEnded
-        );
 
+        require!(stream_account.is_cancelled == false, MyError::StreamAlreadyCancelled);
+        
         let rate = stream_account.rate_of_stream;
         let interval = stream_account.interval;
 
@@ -841,12 +833,21 @@ pub mod stream_contract {
         require!(amount >= rate, MyError::DepositSmallerThanTime);
 
         let duration = ((amount as f64 / rate as f64) * interval as f64).round();
-        let new_stop = stream_account.stop_time + duration as u128;
+        
+        if timestamp <= stop {
+            if stream_account.is_paused == true {
+                stream_account.time_left += duration as u128;
+            } else{
+                stream_account.stop_time += duration as u128;
+            }
+        } else{
+            stream_account.start_time = timestamp;
+            stream_account.stop_time = timestamp + duration as u128;
+        }
 
-        stream_account.stop_time = new_stop;
         stream_account.remaining_balance += amount;
         stream_account.deposit += amount;
-
+        
         let sender = ctx.accounts.sender.key();
 
         let seeds = &[
@@ -882,6 +883,7 @@ pub mod stream_contract {
         let stream_account = &mut ctx.accounts.stream;
         let clock: Clock = Clock::get().unwrap();
         let timestamp = clock.unix_timestamp as u128;
+        let stop = stream_account.stop_time;
 
         require!(
             stream_account.is_infinite == true,
@@ -892,10 +894,8 @@ pub mod stream_contract {
             MyError::IncorrectStreamId
         );
         require!(amount > 0, MyError::DepositIsZero);
-        require!(
-            timestamp < stream_account.stop_time,
-            MyError::StreamAlreadyEnded
-        );
+       
+        require!(stream_account.is_cancelled == false, MyError::StreamAlreadyCancelled);
 
         let rate = stream_account.rate_of_stream;
         let interval = stream_account.interval;
@@ -904,9 +904,18 @@ pub mod stream_contract {
         require!(amount >= rate, MyError::DepositSmallerThanTime);
 
         let duration = ((amount as f64 / rate as f64) * interval as f64).round();
-        let new_stop = stream_account.stop_time + duration as u128;
-
-        stream_account.stop_time = new_stop;
+       
+        if timestamp <= stop {
+            if stream_account.is_paused == true {
+                stream_account.time_left += duration as u128;
+            } else{
+                stream_account.stop_time += duration as u128;
+            }
+        } else{
+            stream_account.start_time = timestamp;
+            stream_account.stop_time = timestamp + duration as u128;
+        }
+        
         stream_account.remaining_balance += amount;
         stream_account.deposit += amount;
 

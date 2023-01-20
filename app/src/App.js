@@ -540,10 +540,10 @@ const Content = () => {
             let readyForWithdrawal = getWithdrawAmount(
               start,
               stop,
-              interval,
-              remBal,
-              rate,
-              amount
+              Number(interval.toString()),
+              Number(remBal.toString()),
+              Number(rate.toString()),
+              Number(amount.toString())
             );
             var status = String;
             if (streamAct.isPaused === true) {

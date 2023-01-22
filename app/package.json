@@ -11,6 +11,7 @@
     "@solana/wallet-adapter-react-ui": "^0.9.19-rc.2",
     "@solana/wallet-adapter-wallets": "^0.19.2",
     "@solana/web3.js": "^1.66.1",
+    "@solflare-wallet/utl-sdk": "^1.4.0",
     "@testing-library/jest-dom": "^5.16.5",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^14.4.3",

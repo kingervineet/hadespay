@@ -18,6 +18,7 @@ import {
   PublicKey,
   LAMPORTS_PER_SOL,
   SYSVAR_RENT_PUBKEY,
+  Keypair,
 } from "@solana/web3.js";
 import {
   Program,
@@ -32,8 +33,14 @@ import {
   TOKEN_PROGRAM_ID,
   getAssociatedTokenAddress,
   ASSOCIATED_TOKEN_PROGRAM_ID,
+  getMint,
+  createMint,
+  getOrCreateAssociatedTokenAccount,
+  mintTo,
+  getAccount,
 } from "@solana/spl-token";
 import { Metaplex, AccountNotFoundError } from "@metaplex-foundation/js";
+import { Client, UtlConfig } from "@solflare-wallet/utl-sdk";
 
 window.Buffer = buffer.Buffer;
 
@@ -172,9 +179,12 @@ const Content = () => {
         "bump: ",
         bumpRecipient
       );
-
+      let trans = "";
       if (!tokenA) {
-        const trans = await program.methods
+        deposit = (deposit * LAMPORTS_PER_SOL).toFixed(0);
+        ratePerInterval = (ratePerInterval * LAMPORTS_PER_SOL).toFixed(0);
+
+        trans = await program.methods
           .createStream(
             streamIdString,
             title,
@@ -201,10 +211,17 @@ const Content = () => {
             systemProgram: web3.SystemProgram.programId,
           })
           .rpc();
-
-        console.log("trans", trans);
       } else {
         const token = new PublicKey(tokenA);
+        let decimals = 1;
+        let mintAccount = await getMint(connection, token);
+        let decimalValue = mintAccount.decimals.valueOf();
+        for (let i = 1; i <= decimalValue; i++) {
+          decimals *= 10;
+        }
+        deposit = (deposit * decimals).toFixed(0);
+        ratePerInterval = (ratePerInterval * decimals).toFixed(0);
+
         const senderTokens = await getAssociatedTokenAddress(
           token,
           provider.wallet.publicKey
@@ -222,7 +239,7 @@ const Content = () => {
           new BN(ratePerInterval),
           new BN(duration),
         ];
-        const trans = await program.methods
+        trans = await program.methods
           .createStreamToken(
             streamIdString,
             title,
@@ -250,9 +267,12 @@ const Content = () => {
             rent: SYSVAR_RENT_PUBKEY,
           })
           .rpc();
-
-        console.log("trans", trans);
       }
+      console.log("trans", trans);
+      let urlString = "https://solscan.io/tx/" + trans + "?cluster=devnet";
+      const url = new URL(urlString);
+      console.log("Solscan URL: ", url.href);
+
       const streamAccount = await program.account.streamAccount.fetch(
         streamPDA
       );
@@ -389,15 +409,42 @@ const Content = () => {
           });
         } catch (error) {
           if (error instanceof AccountNotFoundError) {
-            token_array_final.push({
-              TokenName: token_array[i].TokenMint.substring(0, 5),
-              TokenSymbol: token_array[i].TokenMint.substring(0, 5),
-              TokenMint: new PublicKey(token_array[i].TokenMint),
-              TokenBalance: token_array[i].TokenBalance,
+            const config = new UtlConfig({
+              /**
+               * 101 - mainnet, 102 - testnet, 103 - devnet
+               */
+              chainId: 103,
+              /**
+               * number of miliseconds to wait until falling back to CDN
+               */
+              timeout: 2000,
+              connection: connection,
+              apiUrl: "https://token-list-api.solana.cloud",
+              cdnUrl:
+                "https://cdn.jsdelivr.net/gh/solflare-wallet/token-list/solana-tokenlist.json",
             });
+
+            const utl = new Client(config);
+            const token2 = await utl.fetchMint(mintAddress);
+            if (token2) {
+              token_array_final.push({
+                TokenName: token2.name,
+                TokenSymbol: token2.symbol,
+                TokenMint: new PublicKey(token_array[i].TokenMint),
+                TokenBalance: token_array[i].TokenBalance,
+              });
+            } else {
+              token_array_final.push({
+                TokenName: token_array[i].TokenMint.substring(0, 5),
+                TokenSymbol: token_array[i].TokenMint.substring(0, 5),
+                TokenMint: new PublicKey(token_array[i].TokenMint),
+                TokenBalance: token_array[i].TokenBalance,
+              });
+            }
           }
         }
       }
+
       console.log(
         "SOL: ",
         await connection.getBalance(provider.wallet.publicKey)
@@ -476,14 +523,7 @@ const Content = () => {
     }
   }
 
-  function getWithdrawAmount(
-    start,
-    stop,
-    interval,
-    remBal,
-    rate,
-    amount
-  ) {
+  function getWithdrawAmount(start, stop, interval, remBal, rate, amount) {
     const timestamp = Math.floor(new Date().valueOf() / 1000);
     let readyForWithdrawal;
     if (timestamp >= stop) {
@@ -494,18 +534,18 @@ const Content = () => {
         readyForWithdrawal = 0;
         return readyForWithdrawal;
       } else {
-      let no_of_intervals = Math.floor(delta / interval);
+        let no_of_intervals = Math.floor(delta / interval);
 
-      readyForWithdrawal = no_of_intervals * rate;
+        readyForWithdrawal = no_of_intervals * rate;
 
-      if (amount > remBal) {
-        let amt_withdrawn = amount - remBal;
-        readyForWithdrawal -= amt_withdrawn;
+        if (amount > remBal) {
+          let amt_withdrawn = amount - remBal;
+          readyForWithdrawal -= amt_withdrawn;
+        }
+        return readyForWithdrawal;
       }
-      return readyForWithdrawal;
     }
   }
-}
 
   async function listAllStreams() {
     const provider = await getProvider();
@@ -576,25 +616,85 @@ const Content = () => {
             }
 
             let intervalString = String;
-            if (streamAct.interval.toString() === "1"){
+            if (streamAct.interval.toString() === "1") {
               intervalString = "Per Second";
-            } else if (streamAct.interval.toString() === "60"){
+            } else if (streamAct.interval.toString() === "60") {
               intervalString = "Per Minute";
-            } else if (streamAct.interval.toString() === "3600"){
+            } else if (streamAct.interval.toString() === "3600") {
               intervalString = "Per Hour";
-            } else if (streamAct.interval.toString() === "86400"){
+            } else if (streamAct.interval.toString() === "86400") {
               intervalString = "Per Day";
-            } else if (streamAct.interval.toString() === "604800"){
+            } else if (streamAct.interval.toString() === "604800") {
               intervalString = "Per Week";
-            } else if (streamAct.interval.toString() === "2592000"){
+            } else if (streamAct.interval.toString() === "2592000") {
               intervalString = "Per Month";
-            } else if (streamAct.interval.toString() === "31536000"){
+            } else if (streamAct.interval.toString() === "31536000") {
               intervalString = "Per Year";
             }
+
+            var token = String.fromCharCode.apply(
+              String,
+              streamAct.tokenAddress.toBytes()
+            );
+            let decimals = 1;
+            let tokenName;
+            let tokenSymbol;
+
+            if (token !== BLANK) {
+              token = streamAct.tokenAddress.toString();
+              let mintAddress = streamAct.tokenAddress;
+              let mintAccount = await getMint(connection, mintAddress);
+              let decimalValue = mintAccount.decimals.valueOf();
+              for (let i = 1; i <= decimalValue; i++) {
+                decimals *= 10;
+              }
+
+              try {
+                const metaplex = Metaplex.make(connection);
+                const nft = await metaplex.nfts().findByMint({ mintAddress });
+                tokenName = nft.name;
+                tokenSymbol = nft.symbol;
+              } catch (error) {
+                if (error instanceof AccountNotFoundError) {
+                  const config = new UtlConfig({
+                    /**
+                     * 101 - mainnet, 102 - testnet, 103 - devnet
+                     */
+                    chainId: 103,
+                    /**
+                     * number of miliseconds to wait until falling back to CDN
+                     */
+                    timeout: 2000,
+                    connection: connection,
+                    apiUrl: "https://token-list-api.solana.cloud",
+                    cdnUrl:
+                      "https://cdn.jsdelivr.net/gh/solflare-wallet/token-list/solana-tokenlist.json",
+                  });
+
+                  const utl = new Client(config);
+                  const token2 = await utl.fetchMint(mintAddress);
+                  if (token2) {
+                    tokenName = token2.name;
+                    tokenSymbol = token2.symbol;
+                  } else {
+                    tokenName = token.substring(0, 5);
+                    tokenSymbol = token.substring(0, 5);
+                  }
+                }
+              }
+            } else {
+              token = "SOL";
+              decimals = LAMPORTS_PER_SOL;
+            }
+
             output.push({
               streamId: streamListSenderAccount.items[i].streamList.toString(),
               title: streamAct.streamTitle.toString(),
-              remainingBalance: (Number(streamAct.remainingBalance.toString())/LAMPORTS_PER_SOL).toFixed(2),
+              tokenName: tokenName,
+              tokenSymbol: tokenSymbol,
+              remainingBalance: (
+                Number(streamAct.remainingBalance.toString()) / decimals
+              ).toFixed(2),
               readyForWithdrawal: readyForWithdrawal,
               status: status,
               isContinuous: streamAct.isInfinite,
@@ -602,8 +702,8 @@ const Content = () => {
               Recipient: streamAct.recipient.toString(),
               Interval: intervalString,
               CancelBy: Object.keys(streamAct.cancelBy)[0],
-              PauseBy:  Object.keys(streamAct.pauseBy)[0],
-              WithdrawBy:  Object.keys(streamAct.withdrawBy)[0],
+              PauseBy: Object.keys(streamAct.pauseBy)[0],
+              WithdrawBy: Object.keys(streamAct.withdrawBy)[0],
               StartTime: (
                 await getDate(Number(streamAct.startTime.toString()) * 1000)
               ).valueOf(),
@@ -926,6 +1026,72 @@ const Content = () => {
     }
   }
 
+  async function createNewMint() {
+    const secret = [
+      250, 171, 223, 107, 235, 114, 209, 178, 28, 174, 187, 116, 239, 142, 127,
+      13, 36, 58, 59, 5, 174, 19, 250, 109, 127, 186, 232, 58, 252, 2, 192, 141,
+      250, 240, 114, 119, 104, 206, 248, 244, 108, 127, 30, 120, 6, 251, 155,
+      237, 109, 237, 22, 207, 222, 139, 161, 249, 243, 219, 33, 166, 82, 200,
+      61, 90,
+    ];
+    const sec = Uint8Array.from(secret);
+    const payer = Keypair.fromSecretKey(sec);
+    const mintAuthority = payer;
+    const freezeAuthority = payer;
+
+    const provider = await getProvider();
+
+    const connection = new Connection(clusterApiUrl("devnet"), "confirmed");
+
+    const mint = await createMint(
+      connection,
+      payer,
+      mintAuthority.publicKey,
+      freezeAuthority.publicKey,
+      6
+    );
+
+    console.log(mint.toBase58());
+
+    const mintInfo = await getMint(connection, mint);
+
+    console.log(mintInfo.supply);
+
+    const tokenAccount = await getOrCreateAssociatedTokenAccount(
+      connection,
+      payer,
+      mint,
+      payer.publicKey
+    );
+
+    console.log(tokenAccount.address.toBase58());
+
+    const tokenAccountInfo = await getAccount(connection, tokenAccount.address);
+
+    console.log(tokenAccountInfo.amount);
+
+    await mintTo(
+      connection,
+      payer,
+      mint,
+      tokenAccount.address,
+      mintAuthority,
+      1000000000
+    );
+
+    const mintInfo2 = await getMint(connection, mint);
+
+    console.log(mintInfo2.supply);
+    // 100
+
+    const tokenAccountInfo2 = await getAccount(
+      connection,
+      tokenAccount.address
+    );
+
+    console.log(tokenAccountInfo2.amount);
+  }
+
   return (
     <div className="App">
       <button
@@ -934,11 +1100,11 @@ const Content = () => {
             recipient,
             tokenAddress,
             "Testing",
-            10000000000,
-            "2023-01-22 11:57",
+            10,
+            "2023-01-23 11:57",
             60,
-            1000000000,
-            600,
+            0.166666666666667,
+            3600,
             true,
             2,
             1,
@@ -978,6 +1144,7 @@ const Content = () => {
         View Details
       </button>
       <button onClick={() => listAllStreams()}>List All Streams</button>
+      <button onClick={() => createNewMint()}>Create New Mint</button>
       <WalletMultiButton />
     </div>
   );

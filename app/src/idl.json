@@ -92,6 +92,10 @@
         {
           "name": "editBy",
           "type": "u8"
+        },
+        {
+          "name": "startNow",
+          "type": "bool"
         }
       ]
     },
@@ -197,6 +201,10 @@
         {
           "name": "editBy",
           "type": "u8"
+        },
+        {
+          "name": "startNow",
+          "type": "bool"
         }
       ]
     },
@@ -788,6 +796,9 @@
           },
           {
             "name": "Both"
+          },
+          {
+            "name": "Neither"
           }
         ]
       }

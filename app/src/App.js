@@ -117,7 +117,8 @@ const Content = () => {
     pause,
     resume,
     withdraw,
-    edit
+    edit,
+    startNow
   ) {
     const provider = await getProvider();
     const network = "https://api.devnet.solana.com";
@@ -188,7 +189,8 @@ const Content = () => {
             new BN(pause),
             new BN(resume),
             new BN(withdraw),
-            new BN(edit)
+            new BN(edit),
+            startNow
           )
           .accounts({
             stream: streamPDA,
@@ -230,7 +232,8 @@ const Content = () => {
             new BN(pause),
             new BN(resume),
             new BN(withdraw),
-            new BN(edit)
+            new BN(edit),
+            startNow
           )
           .accounts({
             stream: streamPDA,
@@ -571,15 +574,36 @@ const Content = () => {
             } else {
               CreatorOrReceiver = "Receiver";
             }
+
+            let intervalString = String;
+            if (streamAct.interval.toString() === "1"){
+              intervalString = "Per Second";
+            } else if (streamAct.interval.toString() === "60"){
+              intervalString = "Per Minute";
+            } else if (streamAct.interval.toString() === "3600"){
+              intervalString = "Per Hour";
+            } else if (streamAct.interval.toString() === "86400"){
+              intervalString = "Per Day";
+            } else if (streamAct.interval.toString() === "604800"){
+              intervalString = "Per Week";
+            } else if (streamAct.interval.toString() === "2592000"){
+              intervalString = "Per Month";
+            } else if (streamAct.interval.toString() === "31536000"){
+              intervalString = "Per Year";
+            }
             output.push({
               streamId: streamListSenderAccount.items[i].streamList.toString(),
               title: streamAct.streamTitle.toString(),
-              remainingBalance: streamAct.remainingBalance.toString(),
+              remainingBalance: (Number(streamAct.remainingBalance.toString())/LAMPORTS_PER_SOL).toFixed(2),
               readyForWithdrawal: readyForWithdrawal,
               status: status,
               isContinuous: streamAct.isInfinite,
               Sender: streamAct.sender.toString(),
               Recipient: streamAct.recipient.toString(),
+              Interval: intervalString,
+              CancelBy: Object.keys(streamAct.cancelBy)[0],
+              PauseBy:  Object.keys(streamAct.pauseBy)[0],
+              WithdrawBy:  Object.keys(streamAct.withdrawBy)[0],
               StartTime: (
                 await getDate(Number(streamAct.startTime.toString()) * 1000)
               ).valueOf(),
@@ -911,15 +935,15 @@ const Content = () => {
             tokenAddress,
             "Testing",
             10000000000,
-            "2023-01-20 16:17",
+            "2023-01-22 11:57",
             60,
             1000000000,
             600,
             true,
             2,
-            2,
-            2,
-            2,
+            1,
+            1,
+            0,
             2
           )
         }

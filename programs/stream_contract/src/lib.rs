@@ -31,6 +31,7 @@ pub mod stream_contract {
         resume_by: u8,
         withdraw_by: u8,
         edit_by: u8,
+        start_now: bool,
     ) -> Result<()> {
         // Get Account
         let stream_account = &mut ctx.accounts.stream;
@@ -39,6 +40,11 @@ pub mod stream_contract {
 
         let clock: Clock = Clock::get().unwrap();
         let timestamp = clock.unix_timestamp as u128;
+        let mut start_time = start;
+        
+        if start_now == true {
+            start_time = timestamp;
+        }
 
         let next_stream_id = stream_list_sender.stream_id + 1;
 
@@ -61,7 +67,7 @@ pub mod stream_contract {
         require!(amount > 0, MyError::DepositIsZero);
 
         // Start time of Stream should be in future
-        require!(start >= timestamp, MyError::PastStartTime);
+        require!(start_time >= timestamp, MyError::PastStartTime);
 
         // Interval of Stream should be greater than 0
         require!(interval > 0, MyError::IntervalIsZero);
@@ -70,10 +76,10 @@ pub mod stream_contract {
         require!(amount >= rate, MyError::DepositSmallerThanTime);
 
         require!(cancel_by <= 2, MyError::InvalidCancelBy);
-        require!(pause_by <= 2, MyError::InvalidPauseBy);
         require!(withdraw_by <= 2, MyError::InvalidWithdrawBy);
-        require!(resume_by <= 2, MyError::InvalidResumeBy);
         require!(edit_by <= 2, MyError::InvalidEditBy);
+        require!(pause_by <= 3, MyError::InvalidPauseBy);
+        require!(resume_by <= 3, MyError::InvalidResumeBy);
 
         require!(rate == ((amount as f64 / duration as f64) * interval as f64).round() as u128, MyError::IncorrectDuration);
         //require!(duration == ((amount as f64 / rate as f64) * interval as f64) as u128, MyError::IncorrectDuration);
@@ -85,14 +91,14 @@ pub mod stream_contract {
             0 => duration
         };
 
-        let stop = start + new_duration;
+        let stop = start_time + new_duration;
 
         stream_account.stream_id = stream_id.clone();
         stream_account.stream_title = stream_title;
         stream_account.recipient = ctx.accounts.recipient.key();
         stream_account.sender = ctx.accounts.sender.key();
         stream_account.token_address = Pubkey::new(BLANK.as_bytes());
-        stream_account.start_time = start;
+        stream_account.start_time = start_time;
         stream_account.stop_time = stop;
         stream_account.remaining_balance = amount;
         stream_account.deposit = amount;
@@ -110,7 +116,8 @@ pub mod stream_contract {
         stream_account.pause_by = match pause_by {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
-            _ => StateChangeAuth::Both,
+            2 => StateChangeAuth::Both,
+            _ => StateChangeAuth::Neither
         };
         stream_account.withdraw_by = match withdraw_by {
             0 => StateChangeAuth::OnlySender,
@@ -120,7 +127,8 @@ pub mod stream_contract {
         stream_account.resume_by = match resume_by {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
-            _ => StateChangeAuth::Both,
+            2 => StateChangeAuth::Both,
+            _ => StateChangeAuth::Neither
         };
         stream_account.edit_by = match edit_by {
             0 => StateChangeAuth::OnlySender,
@@ -172,18 +180,23 @@ pub mod stream_contract {
         resume_by: u8,
         withdraw_by: u8,
         edit_by: u8,
+        start_now: bool,
     ) -> Result<()> {
         let stream_account = &mut ctx.accounts.stream;
         let stream_list_sender = &mut ctx.accounts.stream_list_sender;
         let stream_list_recipient = &mut ctx.accounts.stream_list_recipient;
 
         let amount = values[0];
-        let start = values[1];
+        let mut start = values[1];
         let interval = values[2];
         let rate = values[3];
         let duration = values[4];
         let clock: Clock = Clock::get().unwrap();
         let timestamp = clock.unix_timestamp as u128;
+
+        if start_now == true {
+            start = timestamp;
+        }
 
         let next_stream_id = stream_list_sender.stream_id + 1;
 
@@ -215,9 +228,9 @@ pub mod stream_contract {
         require!(amount >= rate, MyError::DepositSmallerThanTime);
        
         require!(cancel_by <= 2, MyError::InvalidCancelBy);
-        require!(pause_by <= 2, MyError::InvalidPauseBy);
+        require!(pause_by <= 3, MyError::InvalidPauseBy);
         require!(withdraw_by <= 2, MyError::InvalidWithdrawBy);
-        require!(resume_by <= 2, MyError::InvalidResumeBy);
+        require!(resume_by <= 3, MyError::InvalidResumeBy);
         require!(edit_by <= 2, MyError::InvalidEditBy);
         
         require!(rate == ((amount as f64 / duration as f64) * interval as f64).round() as u128, MyError::IncorrectDuration);
@@ -255,7 +268,8 @@ pub mod stream_contract {
         stream_account.pause_by = match pause_by {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
-            _ => StateChangeAuth::Both,
+            2 => StateChangeAuth::Both,
+            _ => StateChangeAuth::Neither
         };
         stream_account.withdraw_by = match withdraw_by {
             0 => StateChangeAuth::OnlySender,
@@ -265,7 +279,8 @@ pub mod stream_contract {
         stream_account.resume_by = match resume_by {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
-            _ => StateChangeAuth::Both,
+            2 => StateChangeAuth::Both,
+            _ => StateChangeAuth::Neither
         };
         stream_account.edit_by = match edit_by {
             0 => StateChangeAuth::OnlySender,
@@ -624,6 +639,7 @@ pub mod stream_contract {
     pub fn pause_stream(ctx: Context<PauseStream>, stream_id: String) -> Result<()> {
         let stream_account = &mut ctx.accounts.stream;
 
+        require!(stream_account.pause_by != StateChangeAuth::Neither, MyError::NotAuthorized);
         require!(
             (stream_account.sender == ctx.accounts.authority.key()
                 && stream_account.pause_by != StateChangeAuth::OnlyReceiver)
@@ -684,6 +700,7 @@ pub mod stream_contract {
     pub fn pause_stream_token(ctx: Context<PauseStreamToken>, stream_id: String) -> Result<()> {
         let stream_account = &mut ctx.accounts.stream;
 
+        require!(stream_account.pause_by != StateChangeAuth::Neither, MyError::NotAuthorized);
         require!(
             (stream_account.sender == ctx.accounts.authority.key()
                 && stream_account.pause_by != StateChangeAuth::OnlyReceiver)
@@ -777,6 +794,7 @@ pub mod stream_contract {
         let clock: Clock = Clock::get().unwrap();
         let timestamp = clock.unix_timestamp as u128;
 
+        require!(stream_account.resume_by != StateChangeAuth::Neither, MyError::NotAuthorized);
         require!(
             (stream_account.sender == ctx.accounts.authority.key()
                 && stream_account.resume_by != StateChangeAuth::OnlyReceiver)
@@ -915,7 +933,7 @@ pub mod stream_contract {
             stream_account.start_time = timestamp;
             stream_account.stop_time = timestamp + duration as u128;
         }
-        
+
         stream_account.remaining_balance += amount;
         stream_account.deposit += amount;
 
@@ -1301,6 +1319,7 @@ pub enum StateChangeAuth {
     OnlySender,
     OnlyReceiver,
     Both,
+    Neither
 }
 
 impl StreamAccount {

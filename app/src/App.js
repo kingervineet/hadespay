@@ -271,7 +271,7 @@ const Content = () => {
       console.log("trans", trans);
       let urlString = "https://solscan.io/tx/" + trans + "?cluster=devnet";
       const url = new URL(urlString);
-      console.log("Solscan URL: ", url.href);
+      console.log("URL: ", url.href);
 
       const streamAccount = await program.account.streamAccount.fetch(
         streamPDA
@@ -683,7 +683,8 @@ const Content = () => {
                 }
               }
             } else {
-              token = "SOL";
+              tokenName = "SOL";
+              tokenSymbol = "SOL";
               decimals = LAMPORTS_PER_SOL;
             }
 

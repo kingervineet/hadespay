@@ -51,7 +51,7 @@ const tokenAddress = new PublicKey(
 );
 const streamPDA = new PublicKey("FzmNArJLjHofiuG9KowbSk51jVzzPUDs5dFmNJqkbvWF");
 const streamPDAtoken = new PublicKey(
-  "E1wpegQ9P5rbCjbNDfHeapfcFeCaEiLfybzkuyfCgknN"
+  "CHZpRu4prxoKyRrwU7JUUJsNEUVnJVdfj6SvYhqasaVv"
 );
 const streamPDAtoken2 = new PublicKey(
   "2ezLde3TbC7DFcPBpkh2TWoGEsW8GqezEnmZreaVszaq"
@@ -378,6 +378,7 @@ const Content = () => {
           ),
         }
       );
+
       let token_array = [];
       let token_array_final = [];
       const metaplex = Metaplex.make(connection);
@@ -435,8 +436,8 @@ const Content = () => {
               });
             } else {
               token_array_final.push({
-                TokenName: token_array[i].TokenMint.substring(0, 5),
-                TokenSymbol: token_array[i].TokenMint.substring(0, 5),
+                TokenName: token_array[i].TokenMint.substring(0, 4),
+                TokenSymbol: token_array[i].TokenMint.substring(0, 4),
                 TokenMint: new PublicKey(token_array[i].TokenMint),
                 TokenBalance: token_array[i].TokenBalance,
               });
@@ -473,7 +474,8 @@ const Content = () => {
       console.log("tokenAddress: ", token);
       console.log(
         "startTime: ",
-        (await getDate(Number(streamAct.startTime.toString()) * 1000)).valueOf()
+        streamAct.startTime.toString()
+        // (await getDate(Number(streamAct.startTime.toString()) * 1000)).valueOf()
       );
       console.log(
         "stopTime: ",
@@ -574,6 +576,8 @@ const Content = () => {
             const streamAct = await program.account.streamAccount.fetch(
               streamListSenderAccount.items[i].streamList
             );
+            const streamId =
+              streamListSenderAccount.items[i].streamList.toString();
             const start = streamAct.startTime.toString();
             const stop = streamAct.stopTime.toString();
             const interval = streamAct.interval;
@@ -656,15 +660,15 @@ const Content = () => {
                 tokenSymbol = nft.symbol;
               } catch (error) {
                 if (error instanceof AccountNotFoundError) {
-                  const config = new UtlConfig({
+                  /*   const config = new UtlConfig({
                     /**
                      * 101 - mainnet, 102 - testnet, 103 - devnet
                      */
-                    chainId: 103,
-                    /**
-                     * number of miliseconds to wait until falling back to CDN
-                     */
-                    timeout: 2000,
+                  //    chainId: 103,
+                  /**
+                   * number of miliseconds to wait until falling back to CDN
+                   */
+                  /*     timeout: 2000,
                     connection: connection,
                     apiUrl: "https://token-list-api.solana.cloud",
                     cdnUrl:
@@ -676,10 +680,10 @@ const Content = () => {
                   if (token2) {
                     tokenName = token2.name;
                     tokenSymbol = token2.symbol;
-                  } else {
-                    tokenName = token.substring(0, 5);
-                    tokenSymbol = token.substring(0, 5);
-                  }
+                  } else {*/
+                  tokenName = token.substring(0, 4);
+                  tokenSymbol = token.substring(0, 4);
+                  //  }
                 }
               }
             } else {
@@ -688,11 +692,39 @@ const Content = () => {
               decimals = LAMPORTS_PER_SOL;
             }
 
+            const transactionList = await connection.getSignaturesForAddress(
+              streamListSenderAccount.items[i].streamList,
+              { limit: 10 },
+              "confirmed"
+            );
+
+            let signatureList = transactionList.map(
+              (transaction) => transaction.signature
+            );
+            let transactionDetails = await connection.getParsedTransactions(
+              signatureList,
+              { commitment: "confirmed", maxSupportedTransactionVersion: 0 }
+            );
+
+            let transactionID;
+            transactionList.forEach((transaction, i) => {
+              const transactionInstructions =
+                transactionDetails[i].transaction.message.instructions;
+              transactionInstructions.forEach((instruction, n) => {
+                if (instruction.accounts[0].toString() === streamId) {
+                  transactionID = transaction.signature;
+                }
+              });
+            });
+
+            let transactionIDURL = new URL("https://solscan.io/tx/" + transactionID + "?cluster=devnet")
+
             output.push({
               streamId: streamListSenderAccount.items[i].streamList.toString(),
               title: streamAct.streamTitle.toString(),
               tokenName: tokenName,
               tokenSymbol: tokenSymbol,
+              transactionIDURL: transactionIDURL.href,
               remainingBalance: (
                 Number(streamAct.remainingBalance.toString()) / decimals
               ).toFixed(2),

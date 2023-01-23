@@ -988,7 +988,7 @@ pub mod stream_contract {
             .position(|r| r == &streamlistsender)
             .unwrap_or(99999999);
         if x != 99999999 {
-            stream_list_sender.items.swap_remove(x);
+            stream_list_sender.items.remove(x);
         }
 
         let y = stream_list_recipient
@@ -997,7 +997,7 @@ pub mod stream_contract {
             .position(|r| r == &streamlistrecipient)
             .unwrap_or(99999999);
         if y != 99999999 {
-            stream_list_recipient.items.swap_remove(y);
+            stream_list_recipient.items.remove(y);
         }
 
         Ok(())

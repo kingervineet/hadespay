@@ -21,16 +21,6 @@
           "isSigner": false
         },
         {
-          "name": "streamListSender",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "streamListRecipient",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
           "name": "systemProgram",
           "isMut": false,
           "isSigner": false
@@ -51,23 +41,31 @@
         },
         {
           "name": "amount",
-          "type": "u128"
+          "type": "u64"
+        },
+        {
+          "name": "cliffAmount",
+          "type": "u64"
+        },
+        {
+          "name": "isCliffPercent",
+          "type": "bool"
         },
         {
           "name": "start",
-          "type": "u128"
+          "type": "u64"
         },
         {
           "name": "interval",
-          "type": "u128"
+          "type": "u64"
         },
         {
           "name": "rate",
-          "type": "u128"
+          "type": "u64"
         },
         {
           "name": "duration",
-          "type": "u128"
+          "type": "u64"
         },
         {
           "name": "isInfinite",
@@ -133,16 +131,6 @@
           "isSigner": false
         },
         {
-          "name": "streamListSender",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "streamListRecipient",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
           "name": "tokenProgram",
           "isMut": false,
           "isSigner": false
@@ -175,8 +163,12 @@
         {
           "name": "values",
           "type": {
-            "vec": "u128"
+            "vec": "u64"
           }
+        },
+        {
+          "name": "isCliffPercent",
+          "type": "bool"
         },
         {
           "name": "isInfinite",
@@ -556,7 +548,7 @@
         },
         {
           "name": "amount",
-          "type": "u128"
+          "type": "u64"
         }
       ]
     },
@@ -601,7 +593,7 @@
         },
         {
           "name": "amount",
-          "type": "u128"
+          "type": "u64"
         }
       ]
     },
@@ -617,16 +609,6 @@
           "name": "sender",
           "isMut": true,
           "isSigner": true
-        },
-        {
-          "name": "streamListSender",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "streamListRecipient",
-          "isMut": true,
-          "isSigner": false
         },
         {
           "name": "systemProgram",
@@ -669,28 +651,48 @@
             "type": "publicKey"
           },
           {
+            "name": "createTime",
+            "type": "u64"
+          },
+          {
             "name": "startTime",
-            "type": "u128"
+            "type": "u64"
           },
           {
             "name": "stopTime",
-            "type": "u128"
+            "type": "u64"
           },
           {
             "name": "remainingBalance",
-            "type": "u128"
+            "type": "u64"
           },
           {
             "name": "deposit",
-            "type": "u128"
+            "type": "u64"
+          },
+          {
+            "name": "withdrawn",
+            "type": "u64"
+          },
+          {
+            "name": "cliffAmount",
+            "type": "u64"
           },
           {
             "name": "interval",
-            "type": "u128"
+            "type": "u64"
           },
           {
             "name": "rateOfStream",
-            "type": "u128"
+            "type": "u64"
+          },
+          {
+            "name": "timeLeft",
+            "type": "u64"
+          },
+          {
+            "name": "pausedAmount",
+            "type": "u64"
           },
           {
             "name": "bump",
@@ -727,6 +729,10 @@
             }
           },
           {
+            "name": "isCliffPercent",
+            "type": "bool"
+          },
+          {
             "name": "isPaused",
             "type": "bool"
           },
@@ -737,52 +743,12 @@
           {
             "name": "isInfinite",
             "type": "bool"
-          },
-          {
-            "name": "timeLeft",
-            "type": "u128"
-          }
-        ]
-      }
-    },
-    {
-      "name": "StreamList",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "streamId",
-            "type": "u16"
-          },
-          {
-            "name": "items",
-            "type": {
-              "vec": {
-                "defined": "StreamItem"
-              }
-            }
           }
         ]
       }
     }
   ],
   "types": [
-    {
-      "name": "StreamItem",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "streamList",
-            "type": "publicKey"
-          },
-          {
-            "name": "isSender",
-            "type": "bool"
-          }
-        ]
-      }
-    },
     {
       "name": "StateChangeAuth",
       "type": {
@@ -957,6 +923,6 @@
     }
   ],
   "metadata": {
-    "address": "FvHH3ev9aWMG8E9jE9Gu58AhoBUTvnLwzuJC1A5kSKT"
+    "address": "F6ZLaARn1TvVHh15hSeymSh6r9XhbiFa5bLiceHWb87d"
   }
 }

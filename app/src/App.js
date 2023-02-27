@@ -1,5 +1,18 @@
 import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
-import { PhantomWalletAdapter } from "@solana/wallet-adapter-wallets";
+import {
+  PhantomWalletAdapter,
+  SolflareWalletAdapter,
+  LedgerWalletAdapter,
+  WalletConnectWalletAdapter,
+  SolletWalletAdapter,
+  TorusWalletAdapter,
+  MathWalletAdapter,
+  BackpackWalletAdapter,
+  BraveWalletAdapter,
+  GlowWalletAdapter,
+  ExodusWalletAdapter,
+  SlopeWalletAdapter,
+} from "@solana/wallet-adapter-wallets";
 import {
   useAnchorWallet,
   WalletProvider,
@@ -45,11 +58,16 @@ import { Client, UtlConfig } from "@solflare-wallet/utl-sdk";
 window.Buffer = buffer.Buffer;
 
 const utf8 = utils.bytes.utf8;
-const recipient = new PublicKey("7QmBg2FW8uXy7GrnHMcHeoFJ9qfT7zRRnTkRG1EDSzeM");
+const recipient1 = new PublicKey(
+  "7QmBg2FW8uXy7GrnHMcHeoFJ9qfT7zRRnTkRG1EDSzeM"
+);
+const recipient2 = new PublicKey(
+  "5jj1Bz955RccH2JDzP3b5Eof2CdyC2GgetcWXFkk4tma"
+);
 const tokenAddress = new PublicKey(
   "Gssm3vfi8s65R31SBdmQRq6cKeYojGgup7whkw4VCiQj"
 );
-const streamPDA = new PublicKey("FzmNArJLjHofiuG9KowbSk51jVzzPUDs5dFmNJqkbvWF");
+const streamPDA = new PublicKey("JCBJvcQPW3jyRXjA3i2YoY8riwybaQzeFf99xBZVA4Tb");
 const streamPDAtoken = new PublicKey(
   "CHZpRu4prxoKyRrwU7JUUJsNEUVnJVdfj6SvYhqasaVv"
 );
@@ -81,7 +99,23 @@ const Context = ({ children }) => {
   // You can also provide a custom RPC endpoint.
   const endpoint = useMemo(() => clusterApiUrl(network), [network]);
 
-  const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  const wallets = useMemo(
+    () => [
+      new PhantomWalletAdapter(),
+      new SolflareWalletAdapter(),
+      new LedgerWalletAdapter(),
+      new WalletConnectWalletAdapter(),
+      new SolletWalletAdapter(),
+      new TorusWalletAdapter(),
+      new MathWalletAdapter(),
+      new BackpackWalletAdapter(),
+      new BraveWalletAdapter(),
+      new GlowWalletAdapter(),
+      new ExodusWalletAdapter(),
+      new SlopeWalletAdapter(),
+    ],
+    []
+  );
 
   return (
     <ConnectionProvider endpoint={endpoint}>
@@ -111,13 +145,13 @@ const Content = () => {
   }
 
   async function createStream(
-    recipient,
+    recipientArray,
     tokenA,
-    title,
-    deposit,
+    titleArray,
+    depositArray,
     startTime,
     interval,
-    ratePerInterval,
+    ratePerIntervalArray,
     duration,
     isInfinite,
     cancel,
@@ -133,213 +167,218 @@ const Content = () => {
     const program = new Program(idl, programID, provider);
 
     try {
-      const startTimestamp = new Date(startTime).valueOf() / 1000;
-      const recipientKey = new PublicKey(recipient);
-      var streamId = 0;
+      for (let i = 0; i < recipientArray.length; i++) {
+        let recipient = recipientArray[i];
+        let deposit = depositArray[i];
+        let ratePerInterval = ratePerIntervalArray[i];
+        let title = titleArray[i];
 
-      const [streamListSender, bumpSender] =
-        await web3.PublicKey.findProgramAddress(
-          [utf8.encode("streamlist"), provider.wallet.publicKey.toBuffer()],
+        const startTimestamp = new Date(startTime).valueOf() / 1000;
+        const recipientKey = new PublicKey(recipient);
+        var streamId = 0;
+
+        const [streamListSender, bumpSender] =
+          await web3.PublicKey.findProgramAddress(
+            [utf8.encode("streamlist"), provider.wallet.publicKey.toBuffer()],
+            program.programId
+          );
+        const [streamListRecipient, bumpRecipient] =
+          await web3.PublicKey.findProgramAddress(
+            [utf8.encode("streamlist"), recipientKey.toBuffer()],
+            program.programId
+          );
+
+        const accountInfo = await connection.getAccountInfo(streamListSender);
+        const isExist = accountInfo !== null;
+
+        if (isExist) {
+          const streamListSenderAccount =
+            await program.account.streamList.fetch(streamListSender);
+          streamId = streamListSenderAccount.streamId;
+        }
+
+        streamId += 1;
+        const streamIdString = streamId.toString();
+
+        const [streamPDA, bump] = await web3.PublicKey.findProgramAddress(
+          [utf8.encode(streamIdString), provider.wallet.publicKey.toBuffer()],
           program.programId
         );
-      const [streamListRecipient, bumpRecipient] =
-        await web3.PublicKey.findProgramAddress(
-          [utf8.encode("streamlist"), recipientKey.toBuffer()],
-          program.programId
+
+        console.log("streamPDA: ", streamPDA.toString(), "bump: ", bump);
+        console.log(
+          "streamListSender: ",
+          streamListSender.toString(),
+          "bump: ",
+          bumpSender
         );
-
-      const accountInfo = await connection.getAccountInfo(streamListSender);
-      const isExist = accountInfo !== null;
-
-      if (isExist) {
-        const streamListSenderAccount = await program.account.streamList.fetch(
-          streamListSender
+        console.log(
+          "streamListRecipient: ",
+          streamListRecipient.toString(),
+          "bump: ",
+          bumpRecipient
         );
-        streamId = streamListSenderAccount.streamId;
-      }
+        let trans = "";
+        if (!tokenA) {
+          deposit = (deposit * LAMPORTS_PER_SOL).toFixed(0);
+          ratePerInterval = (ratePerInterval * LAMPORTS_PER_SOL).toFixed(0);
 
-      streamId += 1;
-      const streamIdString = streamId.toString();
+          trans = await program.methods
+            .createStream(
+              streamIdString,
+              title,
+              new BN(bump),
+              new BN(deposit),
+              new BN(startTimestamp),
+              new BN(interval),
+              new BN(ratePerInterval),
+              new BN(duration),
+              isInfinite,
+              new BN(cancel),
+              new BN(pause),
+              new BN(resume),
+              new BN(withdraw),
+              new BN(edit),
+              startNow
+            )
+            .accounts({
+              stream: streamPDA,
+              sender: provider.wallet.publicKey,
+              recipient: recipientKey,
+              streamListSender: streamListSender,
+              streamListRecipient: streamListRecipient,
+              systemProgram: web3.SystemProgram.programId,
+            })
+            .rpc();
+        } else {
+          const token = new PublicKey(tokenA);
+          let decimals = 1;
+          let mintAccount = await getMint(connection, token);
+          let decimalValue = mintAccount.decimals.valueOf();
+          for (let i = 1; i <= decimalValue; i++) {
+            decimals *= 10;
+          }
+          deposit = (deposit * decimals).toFixed(0);
+          ratePerInterval = (ratePerInterval * decimals).toFixed(0);
 
-      const [streamPDA, bump] = await web3.PublicKey.findProgramAddress(
-        [utf8.encode(streamIdString), provider.wallet.publicKey.toBuffer()],
-        program.programId
-      );
+          const senderTokens = await getAssociatedTokenAddress(
+            token,
+            provider.wallet.publicKey
+          );
+          const streamTokens = await getAssociatedTokenAddress(
+            token,
+            streamPDA,
+            true
+          );
 
-      console.log("streamPDA: ", streamPDA.toString(), "bump: ", bump);
-      console.log(
-        "streamListSender: ",
-        streamListSender.toString(),
-        "bump: ",
-        bumpSender
-      );
-      console.log(
-        "streamListRecipient: ",
-        streamListRecipient.toString(),
-        "bump: ",
-        bumpRecipient
-      );
-      let trans = "";
-      if (!tokenA) {
-        deposit = (deposit * LAMPORTS_PER_SOL).toFixed(0);
-        ratePerInterval = (ratePerInterval * LAMPORTS_PER_SOL).toFixed(0);
-
-        trans = await program.methods
-          .createStream(
-            streamIdString,
-            title,
-            new BN(bump),
+          const values = [
             new BN(deposit),
             new BN(startTimestamp),
             new BN(interval),
             new BN(ratePerInterval),
             new BN(duration),
-            isInfinite,
-            new BN(cancel),
-            new BN(pause),
-            new BN(resume),
-            new BN(withdraw),
-            new BN(edit),
-            startNow
-          )
-          .accounts({
-            stream: streamPDA,
-            sender: provider.wallet.publicKey,
-            recipient: recipientKey,
-            streamListSender: streamListSender,
-            streamListRecipient: streamListRecipient,
-            systemProgram: web3.SystemProgram.programId,
-          })
-          .rpc();
-      } else {
-        const token = new PublicKey(tokenA);
-        let decimals = 1;
-        let mintAccount = await getMint(connection, token);
-        let decimalValue = mintAccount.decimals.valueOf();
-        for (let i = 1; i <= decimalValue; i++) {
-          decimals *= 10;
+          ];
+          trans = await program.methods
+            .createStreamToken(
+              streamIdString,
+              title,
+              values,
+              isInfinite,
+              new BN(cancel),
+              new BN(pause),
+              new BN(resume),
+              new BN(withdraw),
+              new BN(edit),
+              startNow
+            )
+            .accounts({
+              stream: streamPDA,
+              sender: provider.wallet.publicKey,
+              recipient: recipientKey,
+              tokenAddress: token,
+              senderTokens: senderTokens,
+              streamTokens: streamTokens,
+              streamListSender: streamListSender,
+              streamListRecipient: streamListRecipient,
+              tokenProgram: TOKEN_PROGRAM_ID,
+              systemProgram: web3.SystemProgram.programId,
+              associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+              rent: SYSVAR_RENT_PUBKEY,
+            })
+            .rpc();
         }
-        deposit = (deposit * decimals).toFixed(0);
-        ratePerInterval = (ratePerInterval * decimals).toFixed(0);
+        console.log("trans", trans);
+        let urlString = "https://solscan.io/tx/" + trans + "?cluster=devnet";
+        const url = new URL(urlString);
+        console.log("URL: ", url.href);
 
-        const senderTokens = await getAssociatedTokenAddress(
-          token,
-          provider.wallet.publicKey
+        const streamAccount = await program.account.streamAccount.fetch(
+          streamPDA
         );
-        const streamTokens = await getAssociatedTokenAddress(
-          token,
-          streamPDA,
-          true
+        const streamListSenderAccount = await program.account.streamList.fetch(
+          streamListSender
         );
+        const streamListRecipientAccount =
+          await program.account.streamList.fetch(streamListRecipient);
 
-        const values = [
-          new BN(deposit),
-          new BN(startTimestamp),
-          new BN(interval),
-          new BN(ratePerInterval),
-          new BN(duration),
-        ];
-        trans = await program.methods
-          .createStreamToken(
-            streamIdString,
-            title,
-            values,
-            isInfinite,
-            new BN(cancel),
-            new BN(pause),
-            new BN(resume),
-            new BN(withdraw),
-            new BN(edit),
-            startNow
-          )
-          .accounts({
-            stream: streamPDA,
-            sender: provider.wallet.publicKey,
-            recipient: recipientKey,
-            tokenAddress: token,
-            senderTokens: senderTokens,
-            streamTokens: streamTokens,
-            streamListSender: streamListSender,
-            streamListRecipient: streamListRecipient,
-            tokenProgram: TOKEN_PROGRAM_ID,
-            systemProgram: web3.SystemProgram.programId,
-            associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-            rent: SYSVAR_RENT_PUBKEY,
-          })
-          .rpc();
-      }
-      console.log("trans", trans);
-      let urlString = "https://solscan.io/tx/" + trans + "?cluster=devnet";
-      const url = new URL(urlString);
-      console.log("URL: ", url.href);
-
-      const streamAccount = await program.account.streamAccount.fetch(
-        streamPDA
-      );
-      const streamListSenderAccount = await program.account.streamList.fetch(
-        streamListSender
-      );
-      const streamListRecipientAccount = await program.account.streamList.fetch(
-        streamListRecipient
-      );
-
-      console.log("Stream Contains: ");
-      console.log("Stream ID: ", streamAccount.streamId);
-      console.log("Stream Title: ", streamAccount.streamTitle.toString());
-      console.log("Sender: ", streamAccount.sender.toString());
-      console.log("Recipient: ", streamAccount.recipient.toString());
-      if (!tokenA) {
+        console.log("Stream Contains: ");
+        console.log("Stream ID: ", streamAccount.streamId);
+        console.log("Stream Title: ", streamAccount.streamTitle.toString());
+        console.log("Sender: ", streamAccount.sender.toString());
+        console.log("Recipient: ", streamAccount.recipient.toString());
+        if (!tokenA) {
+          console.log(
+            "tokenAddress: ",
+            String.fromCharCode.apply(
+              String,
+              streamAccount.tokenAddress.toBytes()
+            )
+          );
+        } else {
+          console.log("tokenAddress: ", streamAccount.tokenAddress.toString());
+        }
         console.log(
-          "tokenAddress: ",
-          String.fromCharCode.apply(
-            String,
-            streamAccount.tokenAddress.toBytes()
-          )
+          "startTime: ",
+          (
+            await getDate(Number(streamAccount.startTime.toString()) * 1000)
+          ).valueOf()
         );
-      } else {
-        console.log("tokenAddress: ", streamAccount.tokenAddress.toString());
-      }
-      console.log(
-        "startTime: ",
-        (
-          await getDate(Number(streamAccount.startTime.toString()) * 1000)
-        ).valueOf()
-      );
-      console.log(
-        "stopTime: ",
-        (
-          await getDate(Number(streamAccount.stopTime.toString()) * 1000)
-        ).valueOf()
-      );
-      console.log(
-        "remainingBalance: ",
-        streamAccount.remainingBalance.toString()
-      );
-      console.log("deposit: ", streamAccount.deposit.toString());
-      console.log("Interval: ", streamAccount.interval.toString());
-      console.log("ratePerSecond: ", streamAccount.rateOfStream.toString());
-      console.log("Bump: ", streamAccount.bump);
-      console.log("Is Paused: ", streamAccount.isPaused.toString());
-      console.log("Is Infinite: ", streamAccount.isInfinite.toString());
-      console.log("Is Cancelled: ", streamAccount.isCancelled.toString());
-      console.log("cancel by: ", Object.keys(streamAccount.cancelBy)[0]);
-      console.log("pause by: ", Object.keys(streamAccount.pauseBy)[0]);
-      console.log("resume by: ", Object.keys(streamAccount.resumeBy)[0]);
-      console.log("withdraw by: ", Object.keys(streamAccount.withdrawBy)[0]);
-      console.log("edit by: ", Object.keys(streamAccount.editBy)[0]);
+        console.log(
+          "stopTime: ",
+          (
+            await getDate(Number(streamAccount.stopTime.toString()) * 1000)
+          ).valueOf()
+        );
+        console.log(
+          "remainingBalance: ",
+          streamAccount.remainingBalance.toString()
+        );
+        console.log("deposit: ", streamAccount.deposit.toString());
+        console.log("Interval: ", streamAccount.interval.toString());
+        console.log("ratePerSecond: ", streamAccount.rateOfStream.toString());
+        console.log("Bump: ", streamAccount.bump);
+        console.log("Is Paused: ", streamAccount.isPaused.toString());
+        console.log("Is Infinite: ", streamAccount.isInfinite.toString());
+        console.log("Is Cancelled: ", streamAccount.isCancelled.toString());
+        console.log("cancel by: ", Object.keys(streamAccount.cancelBy)[0]);
+        console.log("pause by: ", Object.keys(streamAccount.pauseBy)[0]);
+        console.log("resume by: ", Object.keys(streamAccount.resumeBy)[0]);
+        console.log("withdraw by: ", Object.keys(streamAccount.withdrawBy)[0]);
+        console.log("edit by: ", Object.keys(streamAccount.editBy)[0]);
 
-      let sender_len = streamListSenderAccount.items.length - 1;
-      let rec_len = streamListRecipientAccount.items.length - 1;
-      console.log(
-        "StreamList Sender contains: ",
-        streamListSenderAccount.items[sender_len].streamList.toString(),
-        streamListSenderAccount.items[sender_len].isSender.toString()
-      );
-      console.log(
-        "StreamList Recipient contains: ",
-        streamListRecipientAccount.items[rec_len].streamList.toString(),
-        streamListRecipientAccount.items[rec_len].isSender.toString()
-      );
+        let sender_len = streamListSenderAccount.items.length - 1;
+        let rec_len = streamListRecipientAccount.items.length - 1;
+        console.log(
+          "StreamList Sender contains: ",
+          streamListSenderAccount.items[sender_len].streamList.toString(),
+          streamListSenderAccount.items[sender_len].isSender.toString()
+        );
+        console.log(
+          "StreamList Recipient contains: ",
+          streamListRecipientAccount.items[rec_len].streamList.toString(),
+          streamListRecipientAccount.items[rec_len].isSender.toString()
+        );
+      }
     } catch (err) {
       console.log("Transaction error: ", err);
     }
@@ -360,6 +399,85 @@ const Content = () => {
       ":" +
       dateformat.getSeconds();
     return date;
+  }
+
+  async function buildSenderList() {
+    const provider = await getProvider();
+    const network = "https://api.devnet.solana.com";
+    const connection = new Connection(network, opts.preflightCommitment);
+
+    let walletKey = provider.wallet.publicKey;
+
+    const x = await connection.getParsedProgramAccounts(programID, 'confirmed');
+    for (let i =0;i<x.length;i++){
+      console.log(x[i].pubkey.toString(),  x[i].account.owner.toString());
+    }
+        const transactionList = await connection.getSignaturesForAddress(
+      walletKey,
+      {},
+      "confirmed"
+    );
+    let transactionID;
+    let streamID;
+    let senderList = [];
+    let isExist;
+    //let CreatorOrReceiver = String;
+    let signatureList = transactionList.map(
+      (transaction) => transaction.signature
+    );
+    for (let x = 0; x < 10; x++) {
+      let j = x * 100;
+      let k = j + 100;
+      let signatureListSliced = signatureList.slice(j, k);
+      let transactionListSliced = transactionList.slice(j,k);
+      let transactionDetails = await connection.getParsedTransactions(
+        signatureListSliced,
+        { commitment: "confirmed" }
+      );
+
+      transactionListSliced.forEach((transaction, i) => {
+        if (
+          transactionDetails[
+            i
+          ].transaction.message.instructions[0].programId.toString() ===
+          programID.toString()
+        ) {
+          if (transactionDetails[i].meta.innerInstructions.length > 0) {
+            if (
+              transactionDetails[i].meta.innerInstructions[0].instructions[0]
+                .parsed.type === "createAccount"
+            ) {
+              let CreatorOrReceiver = 'Receiver';
+              if (transactionDetails[i].meta.innerInstructions[0].instructions[0].parsed.info.source === walletKey.toString()){
+                CreatorOrReceiver = 'Creator';
+              }
+              let streamID = transactionDetails[i].transaction.message.instructions[0].accounts[0].toString();
+              console.log(streamID);
+              let transactionIDURL = (new URL("https://solscan.io/tx/" + transactionID + "?cluster=devnet")).href;
+              senderList.push({
+                streamID:
+                  streamID,
+                transactionID: transaction.signature,
+                transactionIDURL: transactionIDURL,
+                exists: 'Y',
+                CreatorOrReceiver: CreatorOrReceiver
+              });
+            }
+          }
+        }
+      });
+    }
+
+    for (let i = 0; i< senderList.length; i++) {
+      let streamID = senderList[i].streamID;
+      let streamIDKey = new PublicKey(streamID);
+      let accountInfo = await connection.getAccountInfo(streamIDKey);
+      const isExist = accountInfo !== null;
+      if (!isExist){
+        senderList[i].exists = 'N';
+      }
+    }
+    console.log(senderList);
   }
 
   async function viewDetails(streamPDA, streamListSender, streamListRecipient) {
@@ -705,19 +823,29 @@ const Content = () => {
               signatureList,
               { commitment: "confirmed", maxSupportedTransactionVersion: 0 }
             );
-
+            console.log(streamId);
             let transactionID;
             transactionList.forEach((transaction, i) => {
               const transactionInstructions =
                 transactionDetails[i].transaction.message.instructions;
               transactionInstructions.forEach((instruction, n) => {
-                if (instruction.accounts[0].toString() === streamId) {
-                  transactionID = transaction.signature;
+                if (transactionDetails[i].meta.innerInstructions.length > 0) {
+                  if (
+                    transactionDetails[i].meta.innerInstructions[0]
+                      .instructions[0].parsed.type === "createAccount"
+                  ) {
+                    transactionID = transaction.signature;
+                  }
                 }
+                /*     if (instruction.accounts[0].toString() === streamId) {
+                  transactionID = transaction.signature;
+                } */
               });
             });
 
-            let transactionIDURL = new URL("https://solscan.io/tx/" + transactionID + "?cluster=devnet")
+            let transactionIDURL = new URL(
+              "https://solscan.io/tx/" + transactionID + "?cluster=devnet"
+            );
 
             output.push({
               streamId: streamListSenderAccount.items[i].streamList.toString(),
@@ -728,7 +856,7 @@ const Content = () => {
               remainingBalance: (
                 Number(streamAct.remainingBalance.toString()) / decimals
               ).toFixed(2),
-              readyForWithdrawal: readyForWithdrawal,
+              readyForWithdrawal: Number(readyForWithdrawal/decimals).toFixed(2),
               status: status,
               isContinuous: streamAct.isInfinite,
               Sender: streamAct.sender.toString(),
@@ -1081,7 +1209,7 @@ const Content = () => {
       payer,
       mintAuthority.publicKey,
       freezeAuthority.publicKey,
-      6
+      9
     );
 
     console.log(mint.toBase58());
@@ -1109,7 +1237,7 @@ const Content = () => {
       mint,
       tokenAccount.address,
       mintAuthority,
-      1000000000
+      1000000000000000
     );
 
     const mintInfo2 = await getMint(connection, mint);
@@ -1130,15 +1258,15 @@ const Content = () => {
       <button
         onClick={() =>
           createStream(
-            recipient,
-            tokenAddress,
-            "Testing",
-            10,
-            "2023-01-23 11:57",
+            [recipient1, recipient2],
+            "",
+            ["Stream 1", "Stream 2"],
+            [1, 2],
+            "2023-01-24 23:45",
             60,
-            0.166666666666667,
-            3600,
-            true,
+            [0.1, 0.2],
+            600,
+            false,
             2,
             1,
             1,
@@ -1168,7 +1296,7 @@ const Content = () => {
       <button
         onClick={() =>
           viewDetails(
-            streamPDAtoken,
+            streamPDA,
             "A8qiM741Jru7B2kZjSX5EhiV6my1qLi1GdTfXe1peDfp",
             "ATPGNLDPpqgLbEpoLe73prQe7QFchvnLsAQ4x1NaCX1L"
           )
@@ -1178,6 +1306,7 @@ const Content = () => {
       </button>
       <button onClick={() => listAllStreams()}>List All Streams</button>
       <button onClick={() => createNewMint()}>Create New Mint</button>
+      <button onClick={() => buildSenderList()}>Build Sender List</button>
       <WalletMultiButton />
     </div>
   );

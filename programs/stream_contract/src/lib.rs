@@ -3,15 +3,15 @@ use anchor_lang::solana_program::account_info::AccountInfo;
 use anchor_lang::AccountsClose;
 use std::string::*;
 
+use anchor_spl::associated_token::{get_associated_token_address, AssociatedToken};
 use anchor_spl::token::{transfer, Mint, Token, TokenAccount, Transfer};
-use anchor_spl::associated_token::{AssociatedToken, get_associated_token_address};
 
 const BLANK: &str = "                                ";
 
-declare_id!("FvHH3ev9aWMG8E9jE9Gu58AhoBUTvnLwzuJC1A5kSKT");
+declare_id!("F6ZLaARn1TvVHh15hSeymSh6r9XhbiFa5bLiceHWb87d");
 
 #[program]
-pub mod stream_contract {
+pub mod stream_contract_test {
 
     use super::*;
 
@@ -20,11 +20,13 @@ pub mod stream_contract {
         stream_id: String,
         stream_title: String,
         bump: u8,
-        amount: u128,
-        start: u128,
-        interval: u128,
-        rate: u128,
-        duration: u128,
+        amount: u64,
+        cliff_amount: u64,
+        is_cliff_percent: bool,
+        start: u64,
+        interval: u64,
+        rate: u64,
+        duration: u64,
         is_infinite: bool,
         cancel_by: u8,
         pause_by: u8,
@@ -35,24 +37,15 @@ pub mod stream_contract {
     ) -> Result<()> {
         // Get Account
         let stream_account = &mut ctx.accounts.stream;
-        let stream_list_sender = &mut ctx.accounts.stream_list_sender;
-        let stream_list_recipient = &mut ctx.accounts.stream_list_recipient;
 
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
         let mut start_time = start;
-        
+        let mut amount = amount;
+
         if start_now == true {
             start_time = timestamp;
         }
-
-        let next_stream_id = stream_list_sender.stream_id + 1;
-
-        // Stream ID should match
-        require!(
-            stream_id == next_stream_id.to_string(),
-            MyError::IncorrectStreamId
-        );
 
         // Stream Title shouldn't be longer than 50 characters
         require!(stream_title.len() <= 50, MyError::TitleTooLong);
@@ -72,23 +65,28 @@ pub mod stream_contract {
         // Interval of Stream should be greater than 0
         require!(interval > 0, MyError::IntervalIsZero);
 
+        // Adjust for cliff amount
+        amount -= cliff_amount;
+
         // Amount to Stream should be greater than the Rate of Stream
         require!(amount >= rate, MyError::DepositSmallerThanTime);
 
-        require!(cancel_by <= 2, MyError::InvalidCancelBy);
+        require!(cancel_by <= 3, MyError::InvalidCancelBy);
         require!(withdraw_by <= 2, MyError::InvalidWithdrawBy);
         require!(edit_by <= 2, MyError::InvalidEditBy);
         require!(pause_by <= 3, MyError::InvalidPauseBy);
         require!(resume_by <= 3, MyError::InvalidResumeBy);
 
-        require!(rate == ((amount as f64 / duration as f64) * interval as f64).round() as u128, MyError::IncorrectDuration);
-        //require!(duration == ((amount as f64 / rate as f64) * interval as f64) as u128, MyError::IncorrectDuration);
+        require!(
+            rate == ((amount as f64 / duration as f64) * interval as f64).round() as u64,
+            MyError::IncorrectDuration
+        );
         let rem = amount % rate;
-        let no_of_intervals = amount/rate;
+        let no_of_intervals = amount / rate;
 
         let new_duration = match rem {
             1.. => interval * (no_of_intervals + 1),
-            0 => duration
+            0 => duration,
         };
 
         let stop = start_time + new_duration;
@@ -98,10 +96,15 @@ pub mod stream_contract {
         stream_account.recipient = ctx.accounts.recipient.key();
         stream_account.sender = ctx.accounts.sender.key();
         stream_account.token_address = Pubkey::new(BLANK.as_bytes());
+        stream_account.create_time = timestamp;
         stream_account.start_time = start_time;
         stream_account.stop_time = stop;
-        stream_account.remaining_balance = amount;
-        stream_account.deposit = amount;
+        stream_account.remaining_balance = amount + cliff_amount;
+        stream_account.deposit = amount + cliff_amount;
+        stream_account.withdrawn = 0;
+        stream_account.cliff_amount = cliff_amount;
+        stream_account.is_cliff_percent = is_cliff_percent;
+        stream_account.paused_amount = 0;
         stream_account.interval = interval;
         stream_account.rate_of_stream = rate;
         stream_account.bump = *ctx.bumps.get("stream").unwrap();
@@ -111,13 +114,14 @@ pub mod stream_contract {
         stream_account.cancel_by = match cancel_by {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
-            _ => StateChangeAuth::Both,
+            2 => StateChangeAuth::Both,
+            _ => StateChangeAuth::Neither,
         };
         stream_account.pause_by = match pause_by {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
             2 => StateChangeAuth::Both,
-            _ => StateChangeAuth::Neither
+            _ => StateChangeAuth::Neither,
         };
         stream_account.withdraw_by = match withdraw_by {
             0 => StateChangeAuth::OnlySender,
@@ -128,7 +132,7 @@ pub mod stream_contract {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
             2 => StateChangeAuth::Both,
-            _ => StateChangeAuth::Neither
+            _ => StateChangeAuth::Neither,
         };
         stream_account.edit_by = match edit_by {
             0 => StateChangeAuth::OnlySender,
@@ -143,7 +147,7 @@ pub mod stream_contract {
         let ix = anchor_lang::solana_program::system_instruction::transfer(
             &ctx.accounts.sender.key(),
             &stream_account.key(),
-            amount as u64,
+            amount + cliff_amount,
         );
 
         anchor_lang::solana_program::program::invoke_signed(
@@ -155,17 +159,6 @@ pub mod stream_contract {
             &[&seeds[..]],
         )?;
 
-        stream_list_sender.stream_id = next_stream_id;
-        stream_list_sender.items.push(StreamItem {
-            stream_list: ctx.accounts.stream.key(),
-            is_sender: true,
-        });
-
-        stream_list_recipient.items.push(StreamItem {
-            stream_list: ctx.accounts.stream.key(),
-            is_sender: false,
-        });
-
         Ok(())
     }
 
@@ -173,7 +166,8 @@ pub mod stream_contract {
         ctx: Context<CreateStreamToken>,
         stream_id: String,
         stream_title: String,
-        values: Vec<u128>,
+        values: Vec<u64>,
+        is_cliff_percent: bool,
         is_infinite: bool,
         cancel_by: u8,
         pause_by: u8,
@@ -183,28 +177,19 @@ pub mod stream_contract {
         start_now: bool,
     ) -> Result<()> {
         let stream_account = &mut ctx.accounts.stream;
-        let stream_list_sender = &mut ctx.accounts.stream_list_sender;
-        let stream_list_recipient = &mut ctx.accounts.stream_list_recipient;
 
-        let amount = values[0];
-        let mut start = values[1];
-        let interval = values[2];
-        let rate = values[3];
-        let duration = values[4];
+        let mut amount = values[0];
+        let cliff_amount = values[1];
+        let mut start = values[2];
+        let interval = values[3];
+        let rate = values[4];
+        let duration = values[5];
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
 
         if start_now == true {
             start = timestamp;
         }
-
-        let next_stream_id = stream_list_sender.stream_id + 1;
-
-        // Stream ID should match
-        require!(
-            stream_id == next_stream_id.to_string(),
-            MyError::IncorrectStreamId
-        );
 
         // Stream Title shouldn't be longer than 50 characters
         require!(stream_title.len() <= 50, MyError::TitleTooLong);
@@ -224,23 +209,28 @@ pub mod stream_contract {
         // Interval of Stream should be greater than 0
         require!(interval > 0, MyError::IntervalIsZero);
 
+        // Adjust for cliff amount
+        amount -= cliff_amount;
+
         // Amount to Stream should be greater than the Rate of Stream
         require!(amount >= rate, MyError::DepositSmallerThanTime);
-       
-        require!(cancel_by <= 2, MyError::InvalidCancelBy);
+
+        require!(cancel_by <= 3, MyError::InvalidCancelBy);
         require!(pause_by <= 3, MyError::InvalidPauseBy);
         require!(withdraw_by <= 2, MyError::InvalidWithdrawBy);
         require!(resume_by <= 3, MyError::InvalidResumeBy);
         require!(edit_by <= 2, MyError::InvalidEditBy);
-        
-        require!(rate == ((amount as f64 / duration as f64) * interval as f64).round() as u128, MyError::IncorrectDuration);
-        //require!(duration == ((amount as f64 / rate as f64).round() * interval as f64) as u128, MyError::IncorrectDuration);
+
+        require!(
+            rate == ((amount as f64 / duration as f64) * interval as f64).round() as u64,
+            MyError::IncorrectDuration
+        );
         let rem = amount % rate;
-        let no_of_intervals = amount/rate;
+        let no_of_intervals = amount / rate;
 
         let new_duration = match rem {
             1.. => interval * (no_of_intervals + 1),
-            0 => duration
+            0 => duration,
         };
 
         let stop = start + new_duration;
@@ -250,10 +240,15 @@ pub mod stream_contract {
         stream_account.recipient = ctx.accounts.recipient.key();
         stream_account.sender = ctx.accounts.sender.key();
         stream_account.token_address = ctx.accounts.token_address.key();
+        stream_account.create_time = timestamp;
         stream_account.start_time = start;
         stream_account.stop_time = stop;
-        stream_account.remaining_balance = amount;
-        stream_account.deposit = amount;
+        stream_account.remaining_balance = amount + cliff_amount;
+        stream_account.deposit = amount + cliff_amount;
+        stream_account.withdrawn = 0;
+        stream_account.cliff_amount = cliff_amount;
+        stream_account.is_cliff_percent = is_cliff_percent;
+        stream_account.paused_amount = 0;
         stream_account.interval = interval;
         stream_account.rate_of_stream = rate;
         stream_account.bump = *ctx.bumps.get("stream").unwrap();
@@ -263,13 +258,14 @@ pub mod stream_contract {
         stream_account.cancel_by = match cancel_by {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
-            _ => StateChangeAuth::Both,
+            2 => StateChangeAuth::Both,
+            _ => StateChangeAuth::Neither,
         };
         stream_account.pause_by = match pause_by {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
             2 => StateChangeAuth::Both,
-            _ => StateChangeAuth::Neither
+            _ => StateChangeAuth::Neither,
         };
         stream_account.withdraw_by = match withdraw_by {
             0 => StateChangeAuth::OnlySender,
@@ -280,7 +276,7 @@ pub mod stream_contract {
             0 => StateChangeAuth::OnlySender,
             1 => StateChangeAuth::OnlyReceiver,
             2 => StateChangeAuth::Both,
-            _ => StateChangeAuth::Neither
+            _ => StateChangeAuth::Neither,
         };
         stream_account.edit_by = match edit_by {
             0 => StateChangeAuth::OnlySender,
@@ -297,19 +293,8 @@ pub mod stream_contract {
                     authority: ctx.accounts.sender.clone().to_account_info(),
                 },
             ),
-            amount as u64,
+            amount + cliff_amount,
         )?;
-
-        stream_list_sender.stream_id = next_stream_id;
-        stream_list_sender.items.push(StreamItem {
-            stream_list: ctx.accounts.stream.key(),
-            is_sender: true,
-        });
-
-        stream_list_recipient.items.push(StreamItem {
-            stream_list: ctx.accounts.stream.key(),
-            is_sender: false,
-        });
 
         Ok(())
     }
@@ -334,39 +319,50 @@ pub mod stream_contract {
             MyError::IncorrectRecipient
         );
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
         let start = stream_account.start_time;
         let stop = stream_account.stop_time;
         let interval = stream_account.interval;
 
         require!(timestamp >= start, MyError::StreamNotStarted);
 
-        let mut ready_for_withdrawal: u128;
+        let mut ready_for_withdrawal: u64;
+        let amt_withdrawn = stream_account.withdrawn;
 
         if timestamp >= stop {
             ready_for_withdrawal = stream_account.remaining_balance;
         } else {
+            let cliff = stream_account.cliff_amount;
             let delta = timestamp - start;
-            require!(delta >= interval, MyError::NothingToWithdraw);
+
+            if cliff == 0 {
+                require!(delta >= interval, MyError::NothingToWithdraw);
+            }
 
             let no_of_intervals = delta / interval;
 
             ready_for_withdrawal = no_of_intervals * stream_account.rate_of_stream;
 
-            if stream_account.deposit > stream_account.remaining_balance {
-                let amt_withdrawn = stream_account.deposit - stream_account.remaining_balance;
+            if stream_account.paused_amount > 0 {
+                ready_for_withdrawal += stream_account.paused_amount;
+            } else {
+                ready_for_withdrawal += cliff;
+            }
+
+            if amt_withdrawn > 0 {
                 ready_for_withdrawal -= amt_withdrawn;
             }
         }
 
         require!(ready_for_withdrawal > 0, MyError::NothingToWithdraw);
 
-        let amt = ready_for_withdrawal as u64;
+        let amt = ready_for_withdrawal;
 
         **stream_account.to_account_info().try_borrow_mut_lamports()? -= amt;
         **ctx.accounts.recipient.try_borrow_mut_lamports()? += amt;
-        
-        stream_account.remaining_balance -= amt as u128;
+
+        stream_account.remaining_balance -= amt;
+        stream_account.withdrawn += amt;
 
         Ok(())
     }
@@ -401,38 +397,54 @@ pub mod stream_contract {
             ctx.accounts.sender.key() == stream_account.sender,
             MyError::IncorrectSender
         );
-        let recipient_tokens = get_associated_token_address(&ctx.accounts.recipient.key(), &stream_account.token_address);
-        require!(ctx.accounts.recipient_tokens.key() == recipient_tokens, MyError::AssociatedTokenAccountIncorrect);
+        let recipient_tokens = get_associated_token_address(
+            &ctx.accounts.recipient.key(),
+            &stream_account.token_address,
+        );
+        require!(
+            ctx.accounts.recipient_tokens.key() == recipient_tokens,
+            MyError::AssociatedTokenAccountIncorrect
+        );
 
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
         let start = stream_account.start_time;
         let stop = stream_account.stop_time;
         let interval = stream_account.interval;
 
         require!(timestamp >= start, MyError::StreamNotStarted);
 
-        let mut ready_for_withdrawal: u128;
+        let mut ready_for_withdrawal: u64;
+        let amt_withdrawn = stream_account.withdrawn;
 
         if timestamp >= stop {
             ready_for_withdrawal = stream_account.remaining_balance;
         } else {
+            let cliff = stream_account.cliff_amount;
             let delta = timestamp - start;
-            require!(delta >= interval, MyError::NothingToWithdraw);
+
+            if cliff == 0 {
+                require!(delta >= interval, MyError::NothingToWithdraw);
+            }
 
             let no_of_intervals = delta / interval;
 
             ready_for_withdrawal = no_of_intervals * stream_account.rate_of_stream;
 
-            if stream_account.deposit > stream_account.remaining_balance {
-                let amt_withdrawn = stream_account.deposit - stream_account.remaining_balance;
+            if stream_account.paused_amount > 0 {
+                ready_for_withdrawal += stream_account.paused_amount;
+            } else {
+                ready_for_withdrawal += cliff;
+            }
+
+            if amt_withdrawn > 0 {
                 ready_for_withdrawal -= amt_withdrawn;
             }
         }
 
         require!(ready_for_withdrawal > 0, MyError::NothingToWithdraw);
 
-        let amt = ready_for_withdrawal as u64;
+        let amt = ready_for_withdrawal;
 
         let sender = ctx.accounts.sender.key();
         let bump = stream_account.bump;
@@ -452,7 +464,8 @@ pub mod stream_contract {
             amt,
         )?;
 
-        stream_account.remaining_balance -= amt as u128;
+        stream_account.remaining_balance -= amt;
+        stream_account.withdrawn += amt;
 
         Ok(())
     }
@@ -460,6 +473,10 @@ pub mod stream_contract {
     pub fn cancel_stream(ctx: Context<CancelStream>, stream_id: String) -> Result<()> {
         let stream_account = &mut ctx.accounts.stream;
 
+        require!(
+            stream_account.cancel_by != StateChangeAuth::Neither,
+            MyError::NotAuthorized
+        );
         require!(
             (stream_account.sender == ctx.accounts.authority.key()
                 && stream_account.cancel_by != StateChangeAuth::OnlyReceiver)
@@ -485,43 +502,52 @@ pub mod stream_contract {
         );
 
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
         let start = stream_account.start_time;
         let stop = stream_account.stop_time;
         let interval = stream_account.interval;
 
         if timestamp < start || stream_account.is_paused == true {
-            let total_balance = stream_account.remaining_balance as u64;
+            let total_balance = stream_account.remaining_balance;
 
             **stream_account.to_account_info().try_borrow_mut_lamports()? -= total_balance;
             **ctx.accounts.sender.try_borrow_mut_lamports()? += total_balance;
             stream_account.remaining_balance = 0;
+            stream_account.is_paused = false;
         } else {
-            let mut ready_for_withdrawal: u128;
+            let mut ready_for_withdrawal: u64;
+            let amt_withdrawn = stream_account.withdrawn;
 
             if timestamp >= stop {
                 ready_for_withdrawal = stream_account.remaining_balance;
             } else {
+                let cliff = stream_account.cliff_amount;
                 let delta = timestamp - start;
 
                 let no_of_intervals = delta / interval;
 
                 ready_for_withdrawal = no_of_intervals * stream_account.rate_of_stream;
 
-                if stream_account.deposit > stream_account.remaining_balance {
-                    let amt_withdrawn = stream_account.deposit - stream_account.remaining_balance;
+                if stream_account.paused_amount > 0 {
+                    ready_for_withdrawal += stream_account.paused_amount;
+                } else {
+                    ready_for_withdrawal += cliff;
+                }
+
+                if amt_withdrawn > 0 {
                     ready_for_withdrawal -= amt_withdrawn;
                 }
             }
 
-            let total_balance = stream_account.remaining_balance as u64;
-            let recipient_balance = ready_for_withdrawal as u64;
+            let total_balance = stream_account.remaining_balance;
+            let recipient_balance = ready_for_withdrawal;
             let sender_balance = total_balance - recipient_balance;
 
             **stream_account.to_account_info().try_borrow_mut_lamports()? -= total_balance;
             **ctx.accounts.recipient.try_borrow_mut_lamports()? += recipient_balance;
             **ctx.accounts.sender.try_borrow_mut_lamports()? += sender_balance;
 
+            stream_account.withdrawn += recipient_balance;
             stream_account.remaining_balance = 0;
         }
         stream_account.is_cancelled = true;
@@ -531,6 +557,10 @@ pub mod stream_contract {
     pub fn cancel_stream_token(ctx: Context<CancelStreamToken>, stream_id: String) -> Result<()> {
         let stream_account = &mut ctx.accounts.stream;
 
+        require!(
+            stream_account.cancel_by != StateChangeAuth::Neither,
+            MyError::NotAuthorized
+        );
         require!(
             (stream_account.sender == ctx.accounts.authority.key()
                 && stream_account.cancel_by != StateChangeAuth::OnlyReceiver)
@@ -550,11 +580,17 @@ pub mod stream_contract {
             stream_account.is_cancelled == false,
             MyError::StreamAlreadyCancelled
         );
-        let recipient_tokens = get_associated_token_address(&ctx.accounts.recipient.key(), &ctx.accounts.token_address.key());
-        require!(ctx.accounts.recipient_tokens.key() == recipient_tokens, MyError::AssociatedTokenAccountIncorrect);
+        let recipient_tokens = get_associated_token_address(
+            &ctx.accounts.recipient.key(),
+            &ctx.accounts.token_address.key(),
+        );
+        require!(
+            ctx.accounts.recipient_tokens.key() == recipient_tokens,
+            MyError::AssociatedTokenAccountIncorrect
+        );
 
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
         let start = stream_account.start_time;
         let stop = stream_account.stop_time;
         let interval = stream_account.interval;
@@ -568,7 +604,7 @@ pub mod stream_contract {
         ];
 
         if timestamp < start || stream_account.is_paused == true {
-            let total_balance = stream_account.remaining_balance as u64;
+            let total_balance = stream_account.remaining_balance;
 
             transfer(
                 CpiContext::new_with_signer(
@@ -583,26 +619,34 @@ pub mod stream_contract {
                 total_balance,
             )?;
             stream_account.remaining_balance = 0;
+            stream_account.is_paused = false;
         } else {
-            let mut ready_for_withdrawal: u128;
+            let mut ready_for_withdrawal: u64;
+            let amt_withdrawn = stream_account.withdrawn;
 
             if timestamp >= stop {
                 ready_for_withdrawal = stream_account.remaining_balance;
             } else {
+                let cliff = stream_account.cliff_amount;
                 let delta = timestamp - start;
 
                 let no_of_intervals = delta / interval;
 
                 ready_for_withdrawal = no_of_intervals * stream_account.rate_of_stream;
 
-                if stream_account.deposit > stream_account.remaining_balance {
-                    let amt_withdrawn = stream_account.deposit - stream_account.remaining_balance;
+                if stream_account.paused_amount > 0 {
+                    ready_for_withdrawal += stream_account.paused_amount;
+                } else {
+                    ready_for_withdrawal += cliff;
+                }
+
+                if amt_withdrawn > 0 {
                     ready_for_withdrawal -= amt_withdrawn;
                 }
             }
 
-            let total_balance = stream_account.remaining_balance as u64;
-            let recipient_balance = ready_for_withdrawal as u64;
+            let total_balance = stream_account.remaining_balance;
+            let recipient_balance = ready_for_withdrawal;
             let sender_balance = total_balance - recipient_balance;
 
             transfer(
@@ -630,6 +674,7 @@ pub mod stream_contract {
                 ),
                 sender_balance,
             )?;
+            stream_account.withdrawn += recipient_balance;
             stream_account.remaining_balance = 0;
         }
         stream_account.is_cancelled = true;
@@ -639,7 +684,10 @@ pub mod stream_contract {
     pub fn pause_stream(ctx: Context<PauseStream>, stream_id: String) -> Result<()> {
         let stream_account = &mut ctx.accounts.stream;
 
-        require!(stream_account.pause_by != StateChangeAuth::Neither, MyError::NotAuthorized);
+        require!(
+            stream_account.pause_by != StateChangeAuth::Neither,
+            MyError::NotAuthorized
+        );
         require!(
             (stream_account.sender == ctx.accounts.authority.key()
                 && stream_account.pause_by != StateChangeAuth::OnlyReceiver)
@@ -661,7 +709,7 @@ pub mod stream_contract {
         );
 
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
         let start = stream_account.start_time;
         let stop = stream_account.stop_time;
         let interval = stream_account.interval;
@@ -669,30 +717,37 @@ pub mod stream_contract {
         require!(timestamp < stop, MyError::StreamAlreadyEnded);
         require!(timestamp >= start, MyError::StreamNotStarted);
 
-        let delta: u128 = timestamp - start;
-        let time_left: u128 = stop - timestamp;
+        let cliff = stream_account.cliff_amount;
+        let delta = timestamp - start;
+        let time_left = stop - timestamp;
 
         let no_of_intervals = delta / interval;
 
         let mut ready_for_withdrawal = no_of_intervals * stream_account.rate_of_stream;
+        let amt_withdrawn = stream_account.withdrawn;
 
-        if stream_account.deposit > stream_account.remaining_balance {
-            let amt_withdrawn = stream_account.deposit - stream_account.remaining_balance;
+        if stream_account.paused_amount > 0 {
+            ready_for_withdrawal += stream_account.paused_amount;
+        } else {
+            ready_for_withdrawal += cliff;
+        }
+
+        if amt_withdrawn > 0 {
             ready_for_withdrawal -= amt_withdrawn;
         }
 
-        let recipient_balance = ready_for_withdrawal as u64;
-        let paused_amount = stream_account.remaining_balance - ready_for_withdrawal;
+        let recipient_balance = ready_for_withdrawal;
 
-        if ready_for_withdrawal > 0 {
+        if recipient_balance > 0 {
             **stream_account.to_account_info().try_borrow_mut_lamports()? -= recipient_balance;
             **ctx.accounts.recipient.try_borrow_mut_lamports()? += recipient_balance;
         }
 
         stream_account.is_paused = true;
         stream_account.time_left = time_left;
-        stream_account.remaining_balance = paused_amount;
-        stream_account.deposit = paused_amount;
+        stream_account.remaining_balance -= recipient_balance;
+        stream_account.withdrawn += recipient_balance;
+        stream_account.paused_amount = stream_account.withdrawn;
 
         Ok(())
     }
@@ -700,7 +755,10 @@ pub mod stream_contract {
     pub fn pause_stream_token(ctx: Context<PauseStreamToken>, stream_id: String) -> Result<()> {
         let stream_account = &mut ctx.accounts.stream;
 
-        require!(stream_account.pause_by != StateChangeAuth::Neither, MyError::NotAuthorized);
+        require!(
+            stream_account.pause_by != StateChangeAuth::Neither,
+            MyError::NotAuthorized
+        );
         require!(
             (stream_account.sender == ctx.accounts.authority.key()
                 && stream_account.pause_by != StateChangeAuth::OnlyReceiver)
@@ -732,11 +790,17 @@ pub mod stream_contract {
             stream_account.is_cancelled == false,
             MyError::StreamAlreadyEnded
         );
-        let recipient_tokens = get_associated_token_address(&ctx.accounts.recipient.key(), &ctx.accounts.token_address.key());
-        require!(ctx.accounts.recipient_tokens.key() == recipient_tokens, MyError::AssociatedTokenAccountIncorrect);
+        let recipient_tokens = get_associated_token_address(
+            &ctx.accounts.recipient.key(),
+            &ctx.accounts.token_address.key(),
+        );
+        require!(
+            ctx.accounts.recipient_tokens.key() == recipient_tokens,
+            MyError::AssociatedTokenAccountIncorrect
+        );
 
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
         let start = stream_account.start_time;
         let stop = stream_account.stop_time;
         let interval = stream_account.interval;
@@ -744,27 +808,33 @@ pub mod stream_contract {
         require!(timestamp < stop, MyError::StreamAlreadyEnded);
         require!(timestamp >= start, MyError::StreamNotStarted);
 
-        let delta: u128 = timestamp - start;
-        let time_left: u128 = stop - timestamp;
+        let cliff = stream_account.cliff_amount;
+        let delta = timestamp - start;
+        let time_left = stop - timestamp;
 
         let no_of_intervals = delta / interval;
 
         let mut ready_for_withdrawal = no_of_intervals * stream_account.rate_of_stream;
+        let amt_withdrawn = stream_account.withdrawn;
 
-        if stream_account.deposit > stream_account.remaining_balance {
-            let amt_withdrawn = stream_account.deposit - stream_account.remaining_balance;
+        if stream_account.paused_amount > 0 {
+            ready_for_withdrawal += stream_account.paused_amount;
+        } else {
+            ready_for_withdrawal += cliff;
+        }
+
+        if amt_withdrawn > 0 {
             ready_for_withdrawal -= amt_withdrawn;
         }
 
-        let recipient_balance = ready_for_withdrawal as u64;
-        let paused_amount = stream_account.remaining_balance - ready_for_withdrawal;
+        let recipient_balance = ready_for_withdrawal;
 
         let sender = ctx.accounts.sender.key();
         let bump = stream_account.bump;
 
         let seeds = &[stream_id.as_bytes(), sender.as_ref(), &[bump]];
 
-        if ready_for_withdrawal > 0 {
+        if recipient_balance > 0 {
             transfer(
                 CpiContext::new_with_signer(
                     ctx.accounts.token_program.to_account_info(),
@@ -781,8 +851,9 @@ pub mod stream_contract {
 
         stream_account.is_paused = true;
         stream_account.time_left = time_left;
-        stream_account.remaining_balance = paused_amount;
-        stream_account.deposit = paused_amount;
+        stream_account.remaining_balance -= recipient_balance;
+        stream_account.withdrawn += recipient_balance;
+        stream_account.paused_amount = stream_account.withdrawn;
 
         Ok(())
     }
@@ -792,9 +863,12 @@ pub mod stream_contract {
         let stream_account = &mut ctx.accounts.stream;
 
         let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
+        let timestamp = clock.unix_timestamp as u64;
 
-        require!(stream_account.resume_by != StateChangeAuth::Neither, MyError::NotAuthorized);
+        require!(
+            stream_account.resume_by != StateChangeAuth::Neither,
+            MyError::NotAuthorized
+        );
         require!(
             (stream_account.sender == ctx.accounts.authority.key()
                 && stream_account.resume_by != StateChangeAuth::OnlyReceiver)
@@ -821,16 +895,12 @@ pub mod stream_contract {
         Ok(())
     }
 
-    pub fn reload_stream(
-        ctx: Context<ReloadStream>,
-        stream_id: String,
-        amount: u128,
-    ) -> Result<()> {
+    pub fn reload_stream(ctx: Context<ReloadStream>, stream_id: String, amount: u64) -> Result<()> {
         // Get Account
         let stream_account = &mut ctx.accounts.stream;
-        let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
-        let stop = stream_account.stop_time;
+        //   let clock: Clock = Clock::get().unwrap();
+        //   let timestamp = clock.unix_timestamp as u128;
+        //   let stop = stream_account.stop_time;
 
         require!(
             stream_account.is_infinite == true,
@@ -842,8 +912,11 @@ pub mod stream_contract {
         );
         require!(amount > 0, MyError::DepositIsZero);
 
-        require!(stream_account.is_cancelled == false, MyError::StreamAlreadyCancelled);
-        
+        require!(
+            stream_account.is_cancelled == false,
+            MyError::StreamAlreadyCancelled
+        );
+
         let rate = stream_account.rate_of_stream;
         let interval = stream_account.interval;
 
@@ -851,21 +924,21 @@ pub mod stream_contract {
         require!(amount >= rate, MyError::DepositSmallerThanTime);
 
         let duration = ((amount as f64 / rate as f64) * interval as f64).round();
-        
-        if timestamp <= stop {
-            if stream_account.is_paused == true {
-                stream_account.time_left += duration as u128;
-            } else{
-                stream_account.stop_time += duration as u128;
-            }
-        } else{
+
+        // if timestamp <= stop {
+        if stream_account.is_paused == true {
+            stream_account.time_left += duration as u64;
+        } else {
+            stream_account.stop_time += duration as u64;
+        }
+        /*      } else{
             stream_account.start_time = timestamp;
             stream_account.stop_time = timestamp + duration as u128;
-        }
+        } */
 
         stream_account.remaining_balance += amount;
         stream_account.deposit += amount;
-        
+
         let sender = ctx.accounts.sender.key();
 
         let seeds = &[
@@ -877,7 +950,7 @@ pub mod stream_contract {
         let ix = anchor_lang::solana_program::system_instruction::transfer(
             &ctx.accounts.sender.key(),
             &stream_account.key(),
-            amount as u64,
+            amount,
         );
 
         anchor_lang::solana_program::program::invoke_signed(
@@ -895,13 +968,13 @@ pub mod stream_contract {
     pub fn reload_stream_token(
         ctx: Context<ReloadStreamToken>,
         stream_id: String,
-        amount: u128,
+        amount: u64,
     ) -> Result<()> {
         // Get Account
         let stream_account = &mut ctx.accounts.stream;
-        let clock: Clock = Clock::get().unwrap();
-        let timestamp = clock.unix_timestamp as u128;
-        let stop = stream_account.stop_time;
+        //    let clock: Clock = Clock::get().unwrap();
+        //    let timestamp = clock.unix_timestamp as u128;
+        //    let stop = stream_account.stop_time;
 
         require!(
             stream_account.is_infinite == true,
@@ -912,8 +985,11 @@ pub mod stream_contract {
             MyError::IncorrectStreamId
         );
         require!(amount > 0, MyError::DepositIsZero);
-       
-        require!(stream_account.is_cancelled == false, MyError::StreamAlreadyCancelled);
+
+        require!(
+            stream_account.is_cancelled == false,
+            MyError::StreamAlreadyCancelled
+        );
 
         let rate = stream_account.rate_of_stream;
         let interval = stream_account.interval;
@@ -922,17 +998,17 @@ pub mod stream_contract {
         require!(amount >= rate, MyError::DepositSmallerThanTime);
 
         let duration = ((amount as f64 / rate as f64) * interval as f64).round();
-       
-        if timestamp <= stop {
-            if stream_account.is_paused == true {
-                stream_account.time_left += duration as u128;
-            } else{
-                stream_account.stop_time += duration as u128;
-            }
-        } else{
+
+        //   if timestamp <= stop {
+        if stream_account.is_paused == true {
+            stream_account.time_left += duration as u64;
+        } else {
+            stream_account.stop_time += duration as u64;
+        }
+        /*    } else{
             stream_account.start_time = timestamp;
             stream_account.stop_time = timestamp + duration as u128;
-        }
+        } */
 
         stream_account.remaining_balance += amount;
         stream_account.deposit += amount;
@@ -946,7 +1022,7 @@ pub mod stream_contract {
                     authority: ctx.accounts.sender.clone().to_account_info(),
                 },
             ),
-            amount as u64,
+            amount,
         )?;
 
         Ok(())
@@ -955,8 +1031,6 @@ pub mod stream_contract {
     pub fn delete_stream(ctx: Context<DeleteStream>, stream_id: String) -> Result<()> {
         // Get Account
         let stream_account = &mut ctx.accounts.stream;
-        let stream_list_sender = &mut ctx.accounts.stream_list_sender;
-        let stream_list_recipient = &mut ctx.accounts.stream_list_recipient;
 
         require!(
             stream_account.stream_id == stream_id,
@@ -972,33 +1046,6 @@ pub mod stream_contract {
         );
 
         stream_account.close(ctx.accounts.sender.to_account_info())?;
-
-        let streamlistsender = StreamItem {
-            stream_list: ctx.accounts.stream.key(),
-            is_sender: true,
-        };
-        let streamlistrecipient = StreamItem {
-            stream_list: ctx.accounts.stream.key(),
-            is_sender: false,
-        };
-
-        let x = stream_list_sender
-            .items
-            .iter()
-            .position(|r| r == &streamlistsender)
-            .unwrap_or(99999999);
-        if x != 99999999 {
-            stream_list_sender.items.remove(x);
-        }
-
-        let y = stream_list_recipient
-            .items
-            .iter()
-            .position(|r| r == &streamlistrecipient)
-            .unwrap_or(99999999);
-        if y != 99999999 {
-            stream_list_recipient.items.remove(y);
-        }
 
         Ok(())
     }
@@ -1021,22 +1068,6 @@ pub struct CreateStream<'info> {
     /// CHECK: safe
     #[account(mut)]
     pub recipient: AccountInfo<'info>,
-    #[account(
-        init_if_needed,
-        seeds = [b"streamlist", sender.key().as_ref()],
-        bump,
-        payer = sender,
-        space = 8 + StreamList::MAX_SIZE,
-    )]
-    pub stream_list_sender: Account<'info, StreamList>,
-    #[account(
-        init_if_needed,
-        seeds = [b"streamlist", recipient.key().as_ref()],
-        bump,
-        payer = sender,
-        space = 8 + StreamList::MAX_SIZE,
-    )]
-    pub stream_list_recipient: Account<'info, StreamList>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1059,28 +1090,12 @@ pub struct CreateStreamToken<'info> {
     pub recipient: AccountInfo<'info>,
     pub token_address: Account<'info, Mint>,
     #[account(mut)]
-    pub sender_tokens: Account<'info, TokenAccount>,
+    pub sender_tokens: Box<Account<'info, TokenAccount>>,
     #[account(init_if_needed,
-        payer = sender, 
-        associated_token::mint = token_address, 
+        payer = sender,
+        associated_token::mint = token_address,
         associated_token::authority = stream)]
-    pub stream_tokens: Account<'info, TokenAccount>,
-    #[account(
-        init_if_needed,
-        seeds = [b"streamlist", sender.key().as_ref()],
-        bump,
-        payer = sender,
-        space = 8 + StreamList::MAX_SIZE,
-    )]
-    pub stream_list_sender: Box<Account<'info, StreamList>>,
-    #[account(
-        init_if_needed,
-        seeds = [b"streamlist", recipient.key().as_ref()],
-        bump,
-        payer = sender,
-        space = 8 + StreamList::MAX_SIZE,
-    )]
-    pub stream_list_recipient: Box<Account<'info, StreamList>>,
+    pub stream_tokens: Box<Account<'info, TokenAccount>>,
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
     pub associated_token_program: Program<'info, AssociatedToken>,
@@ -1118,8 +1133,8 @@ pub struct WithdrawFromStreamToken<'info> {
     #[account(mut)]
     pub recipient: AccountInfo<'info>,
     #[account(init_if_needed,
-        payer = authority, 
-        associated_token::mint = token_address, 
+        payer = authority,
+        associated_token::mint = token_address,
         associated_token::authority = recipient)]
     pub recipient_tokens: Account<'info, TokenAccount>,
     pub token_address: Account<'info, Mint>,
@@ -1160,8 +1175,8 @@ pub struct CancelStreamToken<'info> {
     #[account(mut)]
     pub recipient: AccountInfo<'info>,
     #[account(init_if_needed,
-        payer = authority, 
-        associated_token::mint = token_address, 
+        payer = authority,
+        associated_token::mint = token_address,
         associated_token::authority = recipient)]
     pub recipient_tokens: Account<'info, TokenAccount>,
     #[account(mut)]
@@ -1204,8 +1219,8 @@ pub struct PauseStreamToken<'info> {
     #[account(mut)]
     pub recipient: AccountInfo<'info>,
     #[account(init_if_needed,
-        payer = authority, 
-        associated_token::mint = token_address, 
+        payer = authority,
+        associated_token::mint = token_address,
         associated_token::authority = recipient)]
     pub recipient_tokens: Account<'info, TokenAccount>,
     pub token_address: Account<'info, Mint>,
@@ -1259,12 +1274,6 @@ pub struct DeleteStream<'info> {
     pub stream: Account<'info, StreamAccount>,
     #[account(mut)]
     pub sender: Signer<'info>,
-    /// CHECK: safe
-    #[account(mut)]
-    pub stream_list_sender: Account<'info, StreamList>,
-    /// CHECK: safe
-    #[account(mut)]
-    pub stream_list_recipient: Account<'info, StreamList>,
     pub system_program: Program<'info, System>,
 }
 
@@ -1280,18 +1289,28 @@ pub struct StreamAccount {
     pub sender: Pubkey,
     // Token
     pub token_address: Pubkey,
+    // Stream Creation time
+    pub create_time: u64,
     // Stream start time
-    pub start_time: u128,
+    pub start_time: u64,
     // Stream end time
-    pub stop_time: u128,
+    pub stop_time: u64,
     // Balance Remaining
-    pub remaining_balance: u128,
+    pub remaining_balance: u64,
     // Total Deposit
-    pub deposit: u128,
+    pub deposit: u64,
+    //Withdrawn Amount
+    pub withdrawn: u64,
+    // Cliff Amount
+    pub cliff_amount: u64,
     // Interval of Stream
-    pub interval: u128,
+    pub interval: u64,
     // Rate per second
-    pub rate_of_stream: u128,
+    pub rate_of_stream: u64,
+    // Pause Timestamp
+    pub time_left: u64,
+    // Amount withdrawn when stream is paused
+    pub paused_amount: u64,
     // Bump
     pub bump: u8,
     // Who can Cancel the Stream
@@ -1304,14 +1323,14 @@ pub struct StreamAccount {
     pub withdraw_by: StateChangeAuth,
     // Who can Edit the Stream,
     pub edit_by: StateChangeAuth,
+    // Whether Cliff is in percentage or value
+    pub is_cliff_percent: bool,
     // Status of Stream
     pub is_paused: bool,
     // Can this stream be deleted
     pub is_cancelled: bool,
     // Infinite Stream
     pub is_infinite: bool,
-    // Pause Timestamp
-    pub time_left: u128,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]
@@ -1319,21 +1338,26 @@ pub enum StateChangeAuth {
     OnlySender,
     OnlyReceiver,
     Both,
-    Neither
+    Neither,
 }
 
 impl StreamAccount {
-    pub const MAX_SIZE: usize = (4 + (4 * 4))
+    pub const MAX_SIZE: usize = (4 + (6 * 4))
         + (4 + (50 * 4))
         + 32
         + 32
         + 32
-        + 16
-        + 16
-        + 16
-        + 16
-        + 16
-        + 16
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
+        + 8
         + 1
         + (1 + 1)
         + (1 + 1)
@@ -1343,25 +1367,7 @@ impl StreamAccount {
         + 1
         + 1
         + 1
-        + 16;
-}
-
-#[account]
-pub struct StreamList {
-    pub stream_id: u16,
-    pub items: Vec<StreamItem>,
-}
-
-#[derive(AnchorSerialize, AnchorDeserialize, Copy, Clone, Default, PartialEq)]
-pub struct StreamItem {
-    // StreamList address
-    pub stream_list: Pubkey,
-    // Status of Stream
-    pub is_sender: bool,
-}
-
-impl StreamList {
-    pub const MAX_SIZE: usize = 2 + 4 + 20 * (32 + 1);
+        + 1;
 }
 
 #[error_code]

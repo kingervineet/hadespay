@@ -11,7 +11,7 @@ const BLANK: &str = "                                ";
 declare_id!("F6ZLaARn1TvVHh15hSeymSh6r9XhbiFa5bLiceHWb87d");
 
 #[program]
-pub mod stream_contract_test {
+pub mod stream_contract {
 
     use super::*;
 
